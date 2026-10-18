@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, type ReactElement } from 'react';
-import { Animated, PanResponder, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, type ReactElement } from 'react';
+import { Animated, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import { DRAG_THRESHOLD, FAB_TOUCH_SIZE, FAB_VISUAL_SIZE, IDLE_FADE_MS, LONG_PRESS_MS } from '../constants';
 import { computeFabPlacement, nearestEdge, yRatioFor, type Size } from '../geometry';
 import type { FabPosition, Insets } from '../types';
@@ -19,10 +19,12 @@ export interface FabProps {
 }
 
 /**
- * Closed-state FAB: 44pt visual circle, ≥48×48 interactive bounds, draggable
- * after 6 logical points, snaps to the nearest horizontal edge, fades to 55%
- * after 3s idle, 500ms long-press hides it until the process restarts.
- * Only the FAB's own bounds intercept touches.
+ * Closed-state FAB: 44pt visual circle with ≥48×48 interactive bounds.
+ *
+ * Tap and 500ms long-press are owned by an inner `Pressable` (so accessibility
+ * activation and pointer taps are unambiguous); dragging is owned by the outer
+ * PanResponder, which only claims movement after 6 logical points and steals the
+ * gesture from the Pressable — that is what suppresses the tap on a drag.
  */
 export function Fab({
   colors,
@@ -41,113 +43,96 @@ export function Fab({
   );
   const translate = useRef(new Animated.ValueXY({ x: 0, y: 0 })).current;
   const opacity = useRef(new Animated.Value(1)).current;
-  const pressed = useRef(new Animated.Value(1)).current;
 
-  const dragged = useRef(false);
-  const longPressed = useRef(false);
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearLongPress = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  };
-
-  const scheduleIdleFade = () => {
-    if (idleTimer.current) clearTimeout(idleTimer.current);
+  /**
+   * Idle fade is driven by an `Animated` delay (no JS timer to leak on unmount)
+   * and is restarted on every touch.
+   */
+  const scheduleIdleFade = useCallback(() => {
+    opacity.stopAnimation();
     opacity.setValue(1);
-    idleTimer.current = setTimeout(() => {
-      Animated.timing(opacity, { toValue: 0.55, duration: reduceMotion ? 0 : 250, useNativeDriver: true }).start();
-    }, IDLE_FADE_MS);
-  };
+    Animated.timing(opacity, {
+      toValue: 0.55,
+      delay: IDLE_FADE_MS,
+      duration: reduceMotion ? 0 : 250,
+      useNativeDriver: true,
+    }).start();
+  }, [opacity, reduceMotion]);
 
   useEffect(() => {
     scheduleIdleFade();
-    return () => {
-      clearLongPress();
-      if (idleTimer.current) clearTimeout(idleTimer.current);
-    };
-    // Scheduled once per mount on purpose: the FAB is a persistent element.
-  }, []);
+    return () => opacity.stopAnimation();
+  }, [opacity, scheduleIdleFade]);
+
+  const wantsDrag = (_event: unknown, gesture: { dx: number; dy: number }) =>
+    Math.abs(gesture.dx) > DRAG_THRESHOLD || Math.abs(gesture.dy) > DRAG_THRESHOLD;
 
   const responder = useMemo(
     () =>
       PanResponder.create({
-        // Never claim movement on touch-down: taps and accessibility activation
-        // must stay unambiguous, and a drag must cancel the tap.
         onStartShouldSetPanResponder: () => false,
-        onMoveShouldSetPanResponder: (_event, gesture) =>
-          Math.abs(gesture.dx) > DRAG_THRESHOLD || Math.abs(gesture.dy) > DRAG_THRESHOLD,
+        onMoveShouldSetPanResponder: wantsDrag,
+        // Taking over from the inner Pressable is what cancels its tap.
+        onMoveShouldSetPanResponderCapture: wantsDrag,
         onPanResponderGrant: () => {
-          dragged.current = false;
-          longPressed.current = false;
           translate.setValue({ x: 0, y: 0 });
-          clearLongPress();
-          longPressTimer.current = setTimeout(() => {
-            longPressed.current = true;
-            onHideRequest();
-          }, LONG_PRESS_MS);
         },
         onPanResponderMove: (_event, gesture) => {
-          if (Math.abs(gesture.dx) > DRAG_THRESHOLD || Math.abs(gesture.dy) > DRAG_THRESHOLD) {
-            dragged.current = true;
-            clearLongPress();
-          }
           translate.setValue({ x: gesture.dx, y: gesture.dy });
         },
         onPanResponderRelease: (_event, gesture) => {
-          clearLongPress();
-          if (longPressed.current) {
-            translate.setValue({ x: 0, y: 0 });
-            return;
-          }
-          if (!dragged.current) {
-            scheduleIdleFade();
-            onActivate();
-            return;
-          }
           const centerX = placement.left + FAB_TOUCH_SIZE / 2 + gesture.dx;
           const top = placement.top + gesture.dy;
           const edge = nearestEdge(centerX, container.width);
           const yRatio = yRatioFor(top, container.height);
           const resting = computeFabPlacement({ edge, yRatio }, container, FAB_TOUCH_SIZE, insets);
           Animated.parallel([
-            Animated.spring(translate.x, { toValue: resting.left - placement.left, useNativeDriver: true, bounciness: 6, speed: 14 }),
-            Animated.spring(translate.y, { toValue: resting.top - placement.top, useNativeDriver: true, bounciness: 6, speed: 14 }),
+            Animated.spring(translate.x, {
+              toValue: resting.left - placement.left,
+              useNativeDriver: true,
+              bounciness: 6,
+              speed: 14,
+            }),
+            Animated.spring(translate.y, {
+              toValue: resting.top - placement.top,
+              useNativeDriver: true,
+              bounciness: 6,
+              speed: 14,
+            }),
           ]).start(() => {
             translate.setValue({ x: 0, y: 0 });
             onMove({ edge, yRatio });
           });
+          scheduleIdleFade();
         },
         onPanResponderTerminate: () => {
-          clearLongPress();
           translate.setValue({ x: 0, y: 0 });
         },
       }),
-    [container, insets, onActivate, onHideRequest, onMove, placement.left, placement.top, translate],
+    [container, insets, onMove, placement.left, placement.top, translate, scheduleIdleFade],
   );
 
   if (container.width === 0 || container.height === 0) return null;
+
+  const label = badgeCount > 0 ? `Open punch list, ${badgeCount} open tasks` : 'Open punch list';
 
   return (
     <Animated.View
       pointerEvents="box-none"
       style={[
         styles.wrapper,
-        { left: placement.left, top: placement.top, opacity, transform: [{ scale: pressed }, ...translate.getTranslateTransform()] },
+        { left: placement.left, top: placement.top, opacity, transform: translate.getTranslateTransform() },
       ]}
       {...responder.panHandlers}
     >
-      <View
-        accessible
+      <Pressable
         accessibilityRole="button"
-        accessibilityLabel={badgeCount > 0 ? `Open punch list, ${badgeCount} open tasks` : 'Open punch list'}
+        accessibilityLabel={label}
         accessibilityHint="Opens the punch-list notepad with this screen prefilled"
-        onAccessibilityTap={() => {
-          onActivate();
-        }}
+        delayLongPress={LONG_PRESS_MS}
+        onPress={onActivate}
+        onLongPress={onHideRequest}
+        onPressIn={scheduleIdleFade}
         style={styles.touch}
       >
         <View
@@ -166,11 +151,15 @@ export function Fab({
           <View style={[styles.iconLine, { backgroundColor: colors.accentText, width: 15 }]} />
         </View>
         {badgeCount > 0 ? (
-          <View style={[styles.badge, { backgroundColor: colors.text }]}>
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+            style={[styles.badge, { backgroundColor: colors.text }]}
+          >
             <Text style={[styles.badgeText, { color: colors.background }]}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
           </View>
         ) : null}
-      </View>
+      </Pressable>
     </Animated.View>
   );
 }

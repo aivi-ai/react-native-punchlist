@@ -105,7 +105,8 @@ export function parseInline(text: string, offset: number, depth = 0): InlineSpan
       }
     }
 
-    if (char === '[') {
+    if (char === '[' && text[i - 1] !== '!') {
+      // `![alt](src)` is an image: unsupported, so it stays literal text.
       const close = text.indexOf(']', i + 1);
       if (close > i + 1 && text[close + 1] === '(') {
         const paren = text.indexOf(')', close + 2);
@@ -252,7 +253,8 @@ export function parseDocument(source: string): MarkdownDocument {
         const currentBullet = BULLET_RE.exec(currentText);
         const currentOrdered = ORDERED_RE.exec(currentText);
         if (currentText.trim() === '' || (!currentBullet && !currentOrdered) || Boolean(currentOrdered) !== orderedList) break;
-        const marker = orderedList ? currentOrdered![0].trim() : currentBullet![0].trim();
+        // Keep the trailing space in the marker so the task brackets are detected.
+        const marker = orderedList ? currentOrdered![0] : currentBullet![0];
         const body = currentText.slice(marker.length);
         const markerEnd = current.start + marker.length;
         let task: TaskMarker | null = null;

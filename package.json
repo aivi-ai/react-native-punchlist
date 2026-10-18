@@ -60,6 +60,7 @@
     "@babel/preset-env": "^7.28.6",
     "@babel/preset-typescript": "^7.27.1",
     "@eslint/js": "^9.39.5",
+    "@react-native/babel-preset": "^0.88.0",
     "@react-native/jest-preset": "^0.88.0",
     "@testing-library/react-native": "^14.1.0",
     "@types/jest": "^30.0.0",

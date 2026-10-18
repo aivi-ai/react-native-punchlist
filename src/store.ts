@@ -31,6 +31,7 @@ import {
 } from './insertion';
 import { isSendableContent, statsFor } from './markdown';
 import {
+  createMemoryStorage,
   parseEnvelope,
   resolveAdapter,
   serializeEnvelope,
@@ -78,6 +79,9 @@ type EditOp =
   | { kind: 'draft'; prefix: string; label: string | null }
   | { kind: 'insert'; anchor: 'start' | 'end' | number; text: string }
   | { kind: 'replace'; startAnchor: 'start' | number; deleteCount: number; text: string }
+  | { kind: 'append'; text: string }
+  /** Undo of a draft that only ever existed in the pre-hydration buffer. */
+  | { kind: 'removeDraft' }
   | { kind: 'replaceAll'; text: string }
   | { kind: 'clear' };
 
@@ -135,7 +139,9 @@ export class PunchlistController implements PunchlistApi {
 
   private config: PunchlistConfig = { platform: { os: 'unknown', version: '' } };
   private appId = DEFAULT_APP_ID;
-  private adapter: PunchlistStorage = resolveAdapter(undefined).adapter;
+  // Adapter resolution is deferred to `activate()`: importing this module must
+  // not touch any storage (that is a documented no-side-effect guarantee).
+  private adapter: PunchlistStorage = createMemoryStorage();
   private adapterKind: AdapterKind = 'memory';
   private endpoint: string | false = DEFAULT_ENDPOINT;
   private headers: Record<string, string> = {};
@@ -163,6 +169,7 @@ export class PunchlistController implements PunchlistApi {
   private fabFromStorage = false;
   private strands: string | null = null;
 
+  private needsWrite = false;
   private pendingOps: EditOp[] = [];
   private session = 0;
   private writeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -341,8 +348,9 @@ export class PunchlistController implements PunchlistApi {
               : parsed.status === 'unknown-version'
                 ? `Stored punch list uses an unsupported version (${String(parsed.version)}); raw data kept untouched.`
                 : `Stored punch list was rejected (${parsed.reason}); raw data kept untouched.`;
-          this.applyLoaded('', generation, false);
           this.persistence = 'error';
+          this.applyLoaded('', generation, false);
+          this.publish();
         }
       },
       (error: unknown) => this.failHydration(generation, error),
@@ -353,9 +361,10 @@ export class PunchlistController implements PunchlistApi {
 
   private failHydration(generation: number, error: unknown): void {
     if (generation !== this.session) return;
-    this.applyLoaded('', generation, false);
     this.persistence = 'error';
     this.persistenceDetail = `Could not read stored notes: ${safeMessage(error, 160)}`;
+    this.applyLoaded('', generation, false);
+    this.publish();
   }
 
   private markHydrated(generation: number): void {
@@ -374,7 +383,14 @@ export class PunchlistController implements PunchlistApi {
   private applyLoaded(loaded: string, generation: number, fromStorage: boolean): void {
     if (generation !== this.session) return;
     let current = loaded;
-    for (const op of this.pendingOps) current = this.replayOp(op, current);
+    for (const op of this.pendingOps) {
+      if (op.kind === 'removeDraft') {
+        // The pre-hydration draft is cancelled: keep the loaded document.
+        current = loaded;
+        continue;
+      }
+      current = this.replayOp(op, current);
+    }
     const hadOps = this.pendingOps.length > 0;
     this.pendingOps = [];
     this.content = current;
@@ -391,7 +407,7 @@ export class PunchlistController implements PunchlistApi {
   private replayOp(op: EditOp, loaded: string): string {
     switch (op.kind) {
       case 'draft': {
-        const plan = planOpenInsertion(loaded, op.prefix, false, false);
+        const plan = planOpenInsertion(loaded, op.prefix, { sameScreen: false, ownsDraft: false });
         this.draft = plan.draft;
         this.openSelection = plan.selection;
         return plan.content;
@@ -404,6 +420,12 @@ export class PunchlistController implements PunchlistApi {
         const start = op.startAnchor === 'start' ? 0 : Math.min(op.startAnchor, loaded.length);
         const end = Math.min(start + op.deleteCount, loaded.length);
         return applyInsert(loaded, { start, end }, op.text).content;
+      }
+      case 'append': {
+        // The separating newline is decided against the *loaded* content, so an
+        // append recorded before hydration cannot glue two lines together.
+        const needsNewline = loaded !== '' && !loaded.endsWith('\n');
+        return loaded + (needsNewline ? '\n' : '') + op.text;
       }
       case 'replaceAll':
         return op.text;
@@ -467,7 +489,10 @@ export class PunchlistController implements PunchlistApi {
   /** Persisted FAB position. Not a document edit: no revision change. */
   setFabPosition(position: FabPosition): void {
     this.fab = { edge: position.edge, yRatio: Math.min(0.95, Math.max(0.05, position.yRatio)) };
-    if (this.active()) this.scheduleWrite();
+    if (this.active()) {
+      this.needsWrite = true;
+      this.scheduleWrite();
+    }
   }
 
   getTrackedPrefix(): string | null {
@@ -489,11 +514,17 @@ export class PunchlistController implements PunchlistApi {
     const capture = captureNow(this.config.getContext, this.config.prefillScreen ?? true);
     const sameScreen = this.draft !== null && this.capture?.label === capture.label;
     const ownsDraft = this.draft !== null;
-    const plan = planOpenInsertion(this.content, capture.prefix, sameScreen, ownsDraft);
+    const plan = planOpenInsertion(this.content, capture.prefix, {
+      sameScreen,
+      ownsDraft,
+      previousPrefix: this.draft?.prefix ?? null,
+    });
     this.capture = capture;
     if (!this.hydrated) this.pendingOps.push({ kind: 'draft', prefix: capture.prefix, label: capture.label });
     this.draft = plan.draft;
-    this.setContentInternal(plan.content, { op: { kind: 'replaceAll', text: plan.content }, skipOp: this.hydrated });
+    // While hydration is pending the `draft` op above already represents this
+    // edit, so the provisional buffer write must not be queued as well.
+    this.setContentInternal(plan.content, { op: { kind: 'replaceAll', text: plan.content }, skipOp: true });
     this.openSelection = plan.selection;
     this.isOpen = true;
     this.publish();
@@ -510,7 +541,12 @@ export class PunchlistController implements PunchlistApi {
     const removal = planCloseRemoval(this.content, this.draft);
     if (removal.removed) {
       this.draft = null;
-      this.setContentInternal(removal.content, { op: { kind: 'replaceAll', text: removal.content }, skipOp: this.hydrated });
+      this.setContentInternal(removal.content, {
+        // Before hydration the draft never reached stored content, so removing
+        // it means "leave the loaded document alone".
+        op: this.hydrated ? { kind: 'replaceAll', text: removal.content } : { kind: 'removeDraft' },
+        skipOp: false,
+      });
     }
     this.isOpen = false;
     this.publish();
@@ -547,10 +583,9 @@ export class PunchlistController implements PunchlistApi {
 
   append(markdown: string): boolean {
     if (!this.active() || typeof markdown !== 'string') return false;
-    const needsNewline = this.content !== '' && !this.content.endsWith('\n');
-    const text = needsNewline ? `\n${markdown}` : markdown;
-    this.setContentInternal(this.content + text, {
-      op: { kind: 'insert', anchor: 'end', text },
+    const provisional = this.content !== '' && !this.content.endsWith('\n') ? `\n${markdown}` : markdown;
+    this.setContentInternal(this.content + provisional, {
+      op: { kind: 'append', text: markdown },
       skipOp: this.hydrated,
     });
     return true;
@@ -562,11 +597,10 @@ export class PunchlistController implements PunchlistApi {
     const label = frozen ? (contextForLabel(frozen) ?? null) : null;
     const prefix = label ? `- [ ] ${escapeForTask(label)}: ` : '- [ ] ';
     const body = typeof text === 'string' ? text.replace(/\s+$/u, '') : '';
-    const line = `${prefix}${body}`;
-    const needsNewline = this.content !== '' && !this.content.endsWith('\n');
-    const insert = (needsNewline ? '\n' : '') + line + '\n';
-    this.setContentInternal(this.content + insert, {
-      op: { kind: 'insert', anchor: 'end', text: insert },
+    const line = `${prefix}${body}\n`;
+    const provisional = this.content !== '' && !this.content.endsWith('\n') ? `\n${line}` : line;
+    this.setContentInternal(this.content + provisional, {
+      op: { kind: 'append', text: line },
       skipOp: this.hydrated,
     });
     return true;
@@ -780,6 +814,7 @@ export class PunchlistController implements PunchlistApi {
   ): void {
     this.content = next;
     this.revision += 1;
+    this.needsWrite = true;
     if (!this.hydrated && !options.skipOp) this.pendingOps.push(options.op);
     this.publish();
     if (this.hydrated) this.scheduleWrite();
@@ -807,8 +842,11 @@ export class PunchlistController implements PunchlistApi {
     }, WRITE_DEBOUNCE_MS);
   }
 
-  /** Persist immediately (flush/close/background) without waiting for the debounce. */
-  private persistNow(): void {
+  /**
+   * Persist immediately (flush/close/background) without waiting for the 400ms
+   * debounce. Public so hosts and tests can force a durable checkpoint.
+   */
+  persistNow(): void {
     if (this.writeTimer) {
       clearTimeout(this.writeTimer);
       this.writeTimer = null;
@@ -819,6 +857,9 @@ export class PunchlistController implements PunchlistApi {
   /** Serialize writes per key: a slow older write can never land after a newer one. */
   private enqueueWrite(): void {
     if (this.adapterKind === 'memory' || this.recoveryRaw !== null) return;
+    // Nothing changed since the last durable write (revision acknowledgement).
+    if (!this.needsWrite) return;
+    this.needsWrite = false;
     const revision = this.revision;
     const key = storageKey(this.appId);
     const payload = serializeEnvelope({
@@ -841,6 +882,8 @@ export class PunchlistController implements PunchlistApi {
               this.persistenceDetail = null;
             } else {
               this.persistence = 'saving';
+              this.needsWrite = true;
+              this.persistNow();
             }
             this.publish();
           },
@@ -848,6 +891,8 @@ export class PunchlistController implements PunchlistApi {
             if (appId !== this.appId) return;
             this.persistence = 'error';
             this.persistenceDetail = `Saving failed: ${safeMessage(error, 160)}`;
+            // Keep the note dirty so the next edit/close retries the write.
+            this.needsWrite = true;
             this.publish();
             throw error;
           },
@@ -923,6 +968,7 @@ export class PunchlistController implements PunchlistApi {
           ...(result && typeof result.url === 'string' ? { url: result.url } : {}),
           ...(result && typeof result.expiresAt === 'string' ? { expiresAt: result.expiresAt } : {}),
         };
+        this.needsWrite = true;
         this.publish();
         this.scheduleWrite();
         return result;

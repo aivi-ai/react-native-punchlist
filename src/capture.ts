@@ -25,7 +25,8 @@ export function normalizeLabel(raw: unknown): string | null {
     if (code === 9 || code === 10 || code === 13 || code === 0x2028 || code === 0x2029 || code === 0x20) {
       out += ' ';
     } else if (code < 0x20 || code === 0x7f) {
-      continue;
+      // Other control characters become a space so words are not joined.
+      out += ' ';
     } else {
       out += raw[i];
     }

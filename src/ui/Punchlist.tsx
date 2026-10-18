@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import {
   AccessibilityInfo,
   Platform,
+  Pressable,
   StatusBar,
   StyleSheet,
   Text,
@@ -150,7 +151,7 @@ export const Punchlist = forwardRef<PunchlistHandle, PunchlistProps>(function Pu
   const resting = store.getFabPosition();
 
   return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none" onLayout={onLayout}>
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none" onLayout={onLayout} testID="punchlist-root">
       {!snapshot.hidden ? (
         <Fab
           colors={colors}
@@ -172,9 +173,17 @@ export const Punchlist = forwardRef<PunchlistHandle, PunchlistProps>(function Pu
         />
       ) : null}
       {recoveryHint !== null ? (
-        <View style={[styles.hint, { backgroundColor: colors.elevated, borderColor: colors.border }]} pointerEvents="none">
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Restore punch list"
+          onPress={() => {
+            store.show();
+            setRecoveryHint(null);
+          }}
+          style={[styles.hint, { backgroundColor: colors.elevated, borderColor: colors.border }]}
+        >
           <Text style={{ color: colors.text, fontSize: 12 }}>{recoveryHint}</Text>
-        </View>
+        </Pressable>
       ) : null}
       <Sheet colors={colors} insets={resolvedInsets} container={container} reduceMotion={reduceMotion} />
     </View>
