@@ -1,0 +1,108 @@
+{
+  "name": "react-native-punchlist",
+  "version": "0.1.0",
+  "description": "Quiet, draggable FAB that opens a screen-aware markdown punch list. Zero runtime dependencies.",
+  "license": "MIT",
+  "author": "AIVI AI Services",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aivi-ai/react-native-punchlist.git"
+  },
+  "keywords": [
+    "react-native",
+    "expo",
+    "punchlist",
+    "feedback",
+    "bug-report",
+    "debug",
+    "markdown",
+    "fab"
+  ],
+  "main": "lib/commonjs/index.js",
+  "module": "lib/module/index.js",
+  "react-native": "lib/module/index.js",
+  "types": "lib/typescript/src/index.d.ts",
+  "source": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/typescript/src/index.d.ts",
+      "react-native": "./lib/module/index.js",
+      "import": "./lib/module/index.js",
+      "require": "./lib/commonjs/index.js",
+      "default": "./lib/module/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
+    "DECISIONS.md",
+    "COMPATIBILITY.md",
+    "MANUAL_TEST.md",
+    "VALIDATION.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "jest",
+    "test:logic": "jest --selectProjects logic",
+    "test:ui": "jest --selectProjects ui",
+    "build": "bob build",
+    "size": "node scripts/size.mjs",
+    "tarball": "npm pack --pack-destination build",
+    "gate": "npm run typecheck && npm run lint && npm test && npm run build && npm run size"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.28.6",
+    "@babel/preset-env": "^7.28.6",
+    "@babel/preset-typescript": "^7.27.1",
+    "@eslint/js": "^9.39.5",
+    "@react-native/jest-preset": "^0.88.0",
+    "@testing-library/react-native": "^14.1.0",
+    "@types/jest": "^30.0.0",
+    "@types/react": "^19.3.0",
+    "babel-jest": "^30.5.2",
+    "eslint": "^9.39.5",
+    "jest": "^30.5.2",
+    "prettier": "^3.9.10",
+    "react": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-builder-bob": "^0.43.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.2"
+  },
+  "peerDependencies": {
+    "react": ">=19.0.0",
+    "react-native": ">=0.79.0"
+  },
+  "react-native-builder-bob": {
+    "source": "src",
+    "output": "lib",
+    "targets": [
+      [
+        "commonjs",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
+    ]
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
