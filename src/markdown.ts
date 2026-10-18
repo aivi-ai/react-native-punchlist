@@ -1,5 +1,3 @@
-import { isFiniteNumber } from './util';
-
 /**
  * Small, bounded, deterministic markdown subset parser/renderer shared by the
  * preview UI and (in spirit) the receiver. No regex with nested quantifiers:
@@ -373,4 +371,3 @@ export function isSendableContent(source: string, trackedPrefix?: string | null)
   return !onlyDrafts;
 }
 
-export { isFiniteNumber };

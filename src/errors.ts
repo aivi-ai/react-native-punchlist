@@ -27,8 +27,3 @@ export function isPunchlistError(value: unknown): value is PunchlistError {
   );
 }
 
-export function toPunchlistError(value: unknown, fallbackCode: PunchlistErrorCode): PunchlistError {
-  if (isPunchlistError(value)) return value;
-  const message = value instanceof Error ? value.message : String(value);
-  return new PunchlistError(fallbackCode, message === '' ? 'Unknown punchlist error' : message);
-}
