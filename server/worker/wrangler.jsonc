@@ -1,0 +1,38 @@
+{
+  // Cloudflare reference receiver for react-native-punchlist.
+  //
+  // NOT DEPLOYED. These are the sources plus the configuration a maintainer
+  // would use. See server/README.md for the exact deploy commands.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "punchlist-reference-receiver",
+  "main": "index.mjs",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "durable_objects": {
+    "bindings": [
+      {
+        // Single named object: storage, rate limiting and idempotency all
+        // route through it. See the SCALE LIMITATION note in index.mjs.
+        "name": "PUNCHLIST_NOTES",
+        "class_name": "PunchlistNotesObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      // SQLite-backed Durable Object storage.
+      "new_sqlite_classes": ["PunchlistNotesObject"]
+    }
+  ],
+  "vars": {
+    // Must be replaced with the real public origin before deploying.
+    // Secrets are NOT committed: keep this as a plain var (a public URL is not
+    // a secret) and set anything sensitive with `wrangler secret put`.
+    "PUBLIC_BASE_URL": "https://punchlist-reference-receiver.example.workers.dev",
+    "PUNCHLIST_RECEIVER_ID": "punchlist-worker-reference",
+    "PUNCHLIST_CORS_ORIGIN": "*"
+  }
+}

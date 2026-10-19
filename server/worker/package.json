@@ -1,0 +1,13 @@
+{
+  "name": "punchlist-worker-reference-dev",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway dev-only package.json for local Wrangler validation. NOT published, NOT part of the npm tarball (server/ is excluded by the package `files` allowlist).",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "dry-run": "wrangler deploy --dry-run --outdir .wrangler-dry-run"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

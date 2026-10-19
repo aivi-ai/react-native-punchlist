@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Punchlist example",
+    "slug": "punchlist-example",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "scheme": "punchlistexample",
+    "ios": { "supportsTablet": true, "bundleIdentifier": "com.example.punchlist" },
+    "android": { "package": "com.example.punchlist", "edgeToEdgeEnabled": true },
+    "web": { "bundler": "metro", "output": "static" },
+    "plugins": ["expo-router"],
+    "experiments": { "typedRoutes": true }
+  }
+}
