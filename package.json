@@ -53,6 +53,7 @@
   ],
   "sideEffects": false,
   "scripts": {
+    "prepare": "bob build",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "test": "jest",
