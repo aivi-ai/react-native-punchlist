@@ -18,58 +18,149 @@
     "markdown",
     "fab"
   ],
-  "main": "lib/commonjs/index.js",
-  "module": "lib/module/index.js",
-  "react-native": "lib/module/index.js",
-  "types": "lib/typescript/commonjs/index.d.ts",
+  "main": "entry/node.js",
+  "module": "entry/index.js",
+  "react-native": "entry/index.js",
+  "types": "entry/node.d.ts",
   "source": "src/index.ts",
   "exports": {
     ".": {
       "react-native": {
-        "types": "./lib/typescript/module/index.d.ts",
-        "default": "./lib/module/index.js"
+        "types": "./entry/index.d.ts",
+        "default": "./entry/index.js"
+      },
+      "production": {
+        "types": "./entry/noop.d.ts",
+        "default": "./entry/noop.js"
+      },
+      "node": {
+        "import": {
+          "types": "./lib/typescript/module/full.d.ts",
+          "default": "./lib/module/full.js"
+        },
+        "require": {
+          "types": "./entry/node.d.ts",
+          "default": "./entry/node.js"
+        }
       },
       "import": {
-        "types": "./lib/typescript/module/index.d.ts",
-        "default": "./lib/module/index.js"
+        "types": "./entry/index.d.ts",
+        "default": "./entry/index.js"
       },
       "require": {
-        "types": "./lib/typescript/commonjs/index.d.ts",
-        "default": "./lib/commonjs/index.js"
+        "types": "./entry/node.d.ts",
+        "default": "./entry/node.js"
       },
-      "default": "./lib/module/index.js"
+      "default": "./entry/index.js"
+    },
+    "./full": {
+      "react-native": {
+        "types": "./lib/typescript/module/full.d.ts",
+        "default": "./lib/module/full.js"
+      },
+      "import": {
+        "types": "./lib/typescript/module/full.d.ts",
+        "default": "./lib/module/full.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/full.d.ts",
+        "default": "./lib/commonjs/full.js"
+      },
+      "default": "./lib/module/full.js"
+    },
+    "./noop": {
+      "types": "./entry/noop.d.ts",
+      "default": "./entry/noop.js"
+    },
+    "./testing": {
+      "react-native": {
+        "types": "./lib/typescript/module/testing.d.ts",
+        "default": "./lib/module/testing.js"
+      },
+      "import": {
+        "types": "./lib/typescript/module/testing.d.ts",
+        "default": "./lib/module/testing.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/testing.d.ts",
+        "default": "./lib/commonjs/testing.js"
+      },
+      "default": "./lib/module/testing.js"
+    },
+    "./metro": {
+      "types": "./metro/index.d.ts",
+      "default": "./metro/index.js"
+    },
+    "./expo-router": {
+      "react-native": {
+        "types": "./entry/expo-router.d.ts",
+        "default": "./entry/expo-router.js"
+      },
+      "production": {
+        "types": "./entry/expo-router.noop.d.ts",
+        "default": "./entry/expo-router.noop.js"
+      },
+      "import": {
+        "types": "./entry/expo-router.d.ts",
+        "default": "./entry/expo-router.js"
+      },
+      "require": {
+        "types": "./entry/expo-router.node.d.ts",
+        "default": "./entry/expo-router.node.js"
+      },
+      "default": "./entry/expo-router.js"
+    },
+    "./expo-router/full": {
+      "react-native": {
+        "types": "./lib/typescript/module/adapters/expo-router.d.ts",
+        "default": "./lib/module/adapters/expo-router.js"
+      },
+      "import": {
+        "types": "./lib/typescript/module/adapters/expo-router.d.ts",
+        "default": "./lib/module/adapters/expo-router.js"
+      },
+      "require": {
+        "types": "./lib/typescript/commonjs/adapters/expo-router.d.ts",
+        "default": "./lib/commonjs/adapters/expo-router.js"
+      },
+      "default": "./lib/module/adapters/expo-router.js"
     },
     "./package.json": "./package.json"
   },
   "files": [
     "lib",
+    "src",
+    "entry",
+    "metro",
     "LICENSE",
     "README.md",
-    "CHANGELOG.md",
-    "DECISIONS.md",
-    "COMPATIBILITY.md",
-    "MANUAL_TEST.md",
-    "VALIDATION.md"
+    "CHANGELOG.md"
   ],
   "sideEffects": false,
   "scripts": {
-    "prepare": "bob build",
+    "prepare": "bob build && node scripts/postbuild.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",
     "test": "jest",
     "test:logic": "jest --selectProjects logic",
     "test:ui": "jest --selectProjects ui",
-    "build": "bob build",
+    "build": "bob build && node scripts/postbuild.mjs",
     "size": "node scripts/size.mjs",
     "tarball": "npm pack --pack-destination build",
-    "gate": "npm run typecheck && npm run lint && npm run test && npm run test:server && npm run build && npm run size",
+    "gate": "npm run build && npm run typecheck && npm run lint && npm run test && npm run test:server && npm run size && npm run size:metro",
     "test:server": "node --test server/shared/shared.test.mjs server/node/node.test.mjs server/worker/worker.test.mjs",
-    "test:all": "npm run test && npm run test:server"
+    "test:all": "npm run test && npm run test:server",
+    "size:metro": "node scripts/size-metro.mjs",
+    "test:handles": "jest --detectOpenHandles",
+    "version": "changeset version",
+    "release": "changeset publish --tag next",
+    "changeset": "changeset"
   },
   "devDependencies": {
     "@babel/core": "^7.28.6",
     "@babel/preset-env": "^7.28.6",
     "@babel/preset-typescript": "^7.27.1",
+    "@changesets/cli": "^2.31.1",
     "@eslint/js": "^9.39.5",
     "@react-native/babel-preset": "^0.88.0",
     "@react-native/jest-preset": "^0.88.0",
@@ -88,8 +179,10 @@
     "typescript-eslint": "^8.71.2"
   },
   "peerDependencies": {
-    "react": ">=19.0.0",
-    "react-native": ">=0.79.0"
+    "expo-router": "*",
+    "react": ">=19.1.0 <20",
+    "react-native": ">=0.81.0 <1",
+    "react-native-safe-area-context": "*"
   },
   "react-native-builder-bob": {
     "source": "src",
@@ -116,6 +209,22 @@
     ]
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
+  },
+  "peerDependenciesMeta": {
+    "expo-router": {
+      "optional": true
+    },
+    "react-native-safe-area-context": {
+      "optional": true
+    }
+  },
+  "homepage": "https://github.com/aivi-ai/react-native-punchlist#readme",
+  "bugs": {
+    "url": "https://github.com/aivi-ai/react-native-punchlist/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

@@ -1,4 +1,5 @@
 import { StrictMode, useEffect, useRef } from 'react';
+import { StyleSheet } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Punchlist } from '../../src/index';
 import { usePunchlist } from '../../src/usePunchlist';
@@ -146,5 +147,71 @@ describe('<Punchlist />', () => {
     expect(screen.getByText(/hidden for this launch/)).toBeTruthy();
     fireEvent.press(screen.getByLabelText('Restore punch list'));
     expect(await screen.findByLabelText(/^Open punch list/)).toBeTruthy();
+  });
+});
+
+describe('<Punchlist /> lifecycle under host re-renders', () => {
+  it('reads storage exactly once per mount', async () => {
+    const storage = memoryStorage();
+    await render(<Punchlist enabled appId="one-read" storage={storage} />);
+    layout();
+    await screen.findByLabelText(/^Open punch list/);
+    expect(storage.reads).toBe(1);
+  });
+
+  it('keeps the sheet open and storage untouched across re-renders with inline props', async () => {
+    const storage = memoryStorage();
+    const tree = (insetTop: number, label: string) => (
+      <Punchlist
+        enabled
+        appId="rerender"
+        storage={storage}
+        insets={{ top: insetTop, right: 0, bottom: 0, left: 0 }}
+        meta={{ build: label }}
+        getContext={() => ({ screen: label })}
+        onOpen={() => undefined}
+        headers={{ 'X-Test': label }}
+      />
+    );
+    const view = await render(tree(10, 'A'));
+    layout();
+    fireEvent.press(await screen.findByLabelText(/^Open punch list/));
+    await screen.findByLabelText('Punch list notes');
+    const readsBefore = storage.reads;
+
+    await view.rerender(tree(44, 'B'));
+    await view.rerender(tree(44, 'C'));
+
+    expect(screen.queryByLabelText('Punch list notes')).not.toBeNull();
+    expect(storage.reads).toBe(readsBefore);
+  });
+
+  it('still re-hydrates when the storage adapter is really swapped', async () => {
+    const first = memoryStorage();
+    const second = memoryStorage();
+    const view = await render(<Punchlist enabled appId="swap" storage={first} />);
+    layout();
+    await screen.findByLabelText(/^Open punch list/);
+    await view.rerender(<Punchlist enabled appId="swap" storage={second} />);
+    await waitFor(() => expect(second.reads).toBe(1));
+    expect(first.reads).toBe(1);
+  });
+});
+
+describe('<Punchlist /> host theme', () => {
+  it('styles the sheet from a navigation-style theme passed inline', async () => {
+    const theme = {
+      dark: true,
+      colors: { primary: 'rgb(10, 132, 255)', background: 'rgb(1, 1, 1)', card: 'rgb(18, 18, 18)', text: 'rgb(229, 229, 231)', border: 'rgb(39, 39, 41)' },
+    };
+    const view = await render(<Punchlist enabled appId="themed" theme={theme} />);
+    layout();
+    fireEvent.press(await screen.findByLabelText(/^Open punch list/));
+    const editor = await screen.findByLabelText('Punch list notes');
+    expect(StyleSheet.flatten(editor.props.style).color).toBe('rgb(229, 229, 231)');
+
+    // Re-rendering with an equal (but new) theme object keeps the sheet open.
+    await view.rerender(<Punchlist enabled appId="themed" theme={{ ...theme, colors: { ...theme.colors } }} />);
+    expect(screen.queryByLabelText('Punch list notes')).not.toBeNull();
   });
 });

@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "resolve": "node resolve.mjs",
-    "check": "npm run resolve && npm run typecheck"
+    "check": "npm run install:fixture && npm run resolve && npm run typecheck",
+    "install:fixture": "npm install --no-package-lock --no-audit --no-fund"
   },
   "dependencies": {
     "react": "19.3.0",

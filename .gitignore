@@ -16,6 +16,7 @@ example/node_modules/
 example/dist/
 example/dist-ios/
 example/dist-android/
+example/dist-*/
 fixtures/**/node_modules/
 server/worker/node_modules/
 server/worker/.wrangler-dry-run/
@@ -26,3 +27,6 @@ server/worker/.wrangler/
 .DS_Store
 *.tsbuildinfo
 .codegraph/
+
+# fixtures pin a local tarball whose hash changes every build
+fixtures/**/package-lock.json

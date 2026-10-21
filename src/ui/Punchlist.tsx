@@ -10,12 +10,13 @@ import {
   View,
   type LayoutChangeEvent,
 } from 'react-native';
+import { actions } from '../actions';
 import { APPROX_INSETS, DEFAULT_ENDPOINT, FAB_TOUCH_SIZE } from '../constants';
 import type { Size } from '../geometry';
 import { countTasks } from '../markdown';
-import * as platform from '../platform';
+import * as platform from '#platform';
 import { store } from '../store';
-import type { Context, Insets, PunchlistHandle, PunchlistProps, SendResult } from '../types';
+import type { Insets, PunchlistHandle, PunchlistProps } from '../types';
 import { usePunchlist } from '../usePunchlist';
 import { Fab } from './Fab';
 import { Sheet } from './Sheet';
@@ -54,7 +55,9 @@ export const Punchlist = forwardRef<PunchlistHandle, PunchlistProps>(function Pu
   const reduceMotion = useReduceMotion();
   const snapshot = usePunchlist();
 
-  const colors = useMemo(() => resolveTheme(theme, scheme, accentColor), [theme, scheme, accentColor]);
+  // A host theme is usually an inline object: key on its content, not identity.
+  const themeKey = typeof theme === 'object' ? JSON.stringify([theme.dark, theme.colors, theme.fonts?.regular?.fontFamily]) : theme;
+  const colors = useMemo(() => resolveTheme(theme, scheme, accentColor), [themeKey, scheme, accentColor]);
   const resolvedInsets = useMemo<Insets>(() => insets ?? approximateInsets(), [insets]);
 
   // Claim ownership in commit, release on unmount (StrictMode replays this).
@@ -89,17 +92,18 @@ export const Punchlist = forwardRef<PunchlistHandle, PunchlistProps>(function Pu
   }, [enabled, token]);
 
   // Runtime changes flow through `configure` without re-claiming ownership.
+  // It is identity-aware: unchanged `appId`/`storage` never restart the session.
   useEffect(() => {
     if (!owned) return;
     store.configure({
-      ...(appId !== undefined ? { appId } : {}),
-      ...(storage !== undefined ? { storage } : {}),
-      ...(headers !== undefined ? { headers } : {}),
-      ...(onSend !== undefined ? { onSend } : {}),
-      ...(meta !== undefined ? { meta } : {}),
-      ...(getContext !== undefined ? { getContext } : {}),
-      ...(onOpen !== undefined ? { onOpen } : {}),
-      ...(onClose !== undefined ? { onClose } : {}),
+      appId,
+      storage,
+      headers,
+      onSend,
+      meta,
+      getContext,
+      onOpen,
+      onClose,
       endpoint,
       prefillScreen,
       position,
@@ -121,24 +125,7 @@ export const Punchlist = forwardRef<PunchlistHandle, PunchlistProps>(function Pu
     return () => clearTimeout(timer);
   }, [recoveryHint]);
 
-  useImperativeHandle(
-    ref,
-    (): PunchlistHandle => ({
-      open: () => store.open(),
-      close: () => store.close(),
-      toggle: () => store.toggle(),
-      show: () => store.show(),
-      hide: () => store.hide(),
-      append: (markdown: string) => store.append(markdown),
-      addTask: (text?: string, context?: Context) => store.addTask(text, context),
-      setContent: (text: string) => store.setContent(text),
-      clear: () => store.clear(),
-      undo: () => store.undo(),
-      flush: () => store.flush(),
-      send: (): Promise<SendResult | void> => store.send(),
-    }),
-    [],
-  );
+  useImperativeHandle(ref, (): PunchlistHandle => actions, []);
 
   const onLayout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;

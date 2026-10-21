@@ -19,7 +19,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ['*.js', '*.cjs', 'scripts/**/*.mjs', 'scripts/**/*.js'],
+    files: ['*.js', '*.cjs', 'entry/**/*.js', 'metro/**/*.js', 'scripts/**/*.js'],
     languageOptions: {
       sourceType: 'commonjs',
       globals: { module: 'writable', require: 'readonly', __dirname: 'readonly', process: 'readonly', console: 'readonly' },

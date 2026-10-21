@@ -28,10 +28,20 @@ registry, which is what the templates actually install.
 ## Package peers and dev toolchain
 
 ```json
-"peerDependencies": { "react": ">=19.0.0", "react-native": ">=0.79.0" }
+"peerDependencies": {
+  "react": ">=19.1.0 <20",
+  "react-native": ">=0.81.0 <1",
+  "expo-router": "*",                      // optional, only for /expo-router
+  "react-native-safe-area-context": "*"    // optional, only for /expo-router
+}
 ```
 
-`react` and `react-native` are the **only** peers, and the runtime
+The ranges are exactly what CI installs: the floor is the `consumer-min`
+fixture (react 19.1.0 / react-native 0.81.5, Expo SDK 54's pair), the ceiling
+the SDK 58 fixture; nothing outside `<20` / `<1` is claimed. `react` and
+`react-native` are the only peers of the core; `expo-router` and
+`react-native-safe-area-context` are **optional** and only needed when the
+`react-native-punchlist/expo-router` subpath is imported. The runtime
 `dependencies` object is empty. Dev-only tooling (never shipped):
 `typescript@5.9.3`, `react-native-builder-bob@0.43.2`, `jest@30.5.2`,
 `@react-native/jest-preset@0.88.0`, `@react-native/babel-preset@0.88.0`,

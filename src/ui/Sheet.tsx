@@ -26,7 +26,7 @@ import {
 import { MAX_CONTENT_BYTES, SHEET_ANIMATION_MS } from '../constants';
 import { keyboardOverlap, sheetHeight, visualViewportOverlap, type Size } from '../geometry';
 import { countTasks } from '../markdown';
-import * as platform from '../platform';
+import * as platform from '#platform';
 import { store } from '../store';
 import type { Insets, PunchlistErrorLike } from '../types';
 import type { Selection } from '../insertion';
@@ -48,6 +48,13 @@ type SelectionEvent = Parameters<NonNullable<ComponentProps<typeof TextInput>['o
 type Overlay = 'none' | 'menu';
 
 const EMPTY_SELECTION: Selection = { start: 0, end: 0 };
+
+const TOOLBAR = [
+  ['task', 'Task'],
+  ['bullet', 'Bullet'],
+  ['heading', 'Heading'],
+  ['stamp', 'Stamp'],
+] as const;
 
 /**
  * Open-state sheet: a transparent RN Modal with a custom 220ms animation, a
@@ -211,28 +218,25 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
     setHint(copied ? 'Copied to clipboard.' : 'Clipboard unavailable — select the text below to copy it.');
   }, [snapshot.content]);
 
-  const onSend = useCallback(async () => {
+  const attempt = useCallback(async (action: () => Promise<unknown>, fallback: string) => {
     setHint(null);
     try {
-      await store.send();
+      await action();
     } catch (error) {
-      const typed = error as PunchlistErrorLike;
-      setHint(typed.message ?? 'Send failed.');
+      setHint((error as PunchlistErrorLike).message ?? fallback);
     }
   }, []);
-
-  const onRetry = useCallback(async () => {
-    setHint(null);
-    try {
-      await store.retry();
-    } catch (error) {
-      const typed = error as PunchlistErrorLike;
-      setHint(typed.message ?? 'Retry failed.');
-    }
-  }, []);
+  const onRetry = useCallback(() => attempt(() => store.retry(), 'Retry failed.'), [attempt]);
 
   if (!snapshot.isOpen) return null;
 
+  const font = hostFont(colors);
+  const menuItems: Array<[string, () => void, boolean?]> = [
+    [previewing ? 'Edit' : 'Preview', () => setPreviewing((value) => !value)],
+    ['Stamp', () => runToolbar('stamp')],
+    ['Share', () => void onShare()],
+    ['Clear', () => void store.clear(), true],
+  ];
   const bytes = utf8Bytes(snapshot.content);
   const oversize = bytes > MAX_CONTENT_BYTES;
   const counts = countTasks(snapshot.content);
@@ -275,10 +279,10 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
               <View style={[styles.grip, { backgroundColor: colors.border }]} />
             </Pressable>
             <View style={styles.headerText}>
-              <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
+              <Text style={[styles.title, { color: colors.text }, font]} numberOfLines={1}>
                 {snapshot.captureLabel ? `Punch list · ${snapshot.captureLabel}` : 'Punch list'}
               </Text>
-              <Text style={[styles.status, { color: colors.muted }]} numberOfLines={1}>
+              <Text style={[styles.status, { color: colors.muted }, font]} numberOfLines={1}>
                 {statusLine(snapshot)}
               </Text>
             </View>
@@ -289,14 +293,14 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
                 accessibilityState={{ disabled: sendDisabled, busy: snapshot.sendState === 'sending' }}
                 disabled={sendDisabled}
                 onPress={() => {
-                  void onSend();
+                  void attempt(() => store.send(), 'Send failed.');
                 }}
                 style={[
                   styles.primaryButton,
                   { backgroundColor: sendDisabled ? colors.elevated : colors.accent, borderColor: colors.border },
                 ]}
               >
-                <Text style={[styles.primaryLabel, { color: sendDisabled ? colors.muted : colors.accentText }]}>
+                <Text style={[styles.primaryLabel, { color: sendDisabled ? colors.muted : colors.accentText }, font]}>
                   {snapshot.sendState === 'sending' ? 'Sending…' : 'Send'}
                 </Text>
               </Pressable>
@@ -325,51 +329,30 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
 
           {overlay === 'menu' ? (
             <View style={[styles.menu, { borderBottomColor: colors.border, backgroundColor: colors.elevated }]}>
-              <MenuButton
-                colors={colors}
-                label={previewing ? 'Edit' : 'Preview'}
-                onPress={() => {
-                  setPreviewing((value) => !value);
-                  setOverlay('none');
-                }}
-              />
-              <MenuButton
-                colors={colors}
-                label="Stamp"
-                onPress={() => {
-                  runToolbar('stamp');
-                  setOverlay('none');
-                }}
-              />
-              <MenuButton
-                colors={colors}
-                label="Share"
-                onPress={() => {
-                  setOverlay('none');
-                  void onShare();
-                }}
-              />
-              <MenuButton
-                colors={colors}
-                label="Clear"
-                destructive
-                onPress={() => {
-                  setOverlay('none');
-                  void store.clear();
-                }}
-              />
+              {menuItems.map(([label, run, destructive]) => (
+                <MenuButton
+                  key={label}
+                  colors={colors}
+                  label={label}
+                  destructive={destructive}
+                  onPress={() => {
+                    setOverlay('none');
+                    run();
+                  }}
+                />
+              ))}
             </View>
           ) : null}
 
           {hint ? (
-            <Text style={[styles.hint, { color: colors.muted }]} accessibilityLiveRegion="polite">
+            <Text style={[styles.hint, { color: colors.muted }, font]} accessibilityLiveRegion="polite">
               {hint}
             </Text>
           ) : null}
 
           {snapshot.canUndo ? (
             <View style={[styles.bannerRow, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.bannerText, { color: colors.text }]}>Notes cleared.</Text>
+              <Text style={[styles.bannerText, { color: colors.text }, font]}>Notes cleared.</Text>
               <MenuButton
                 colors={colors}
                 label="Undo"
@@ -384,7 +367,7 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
 
           {snapshot.persistenceDetail !== null && snapshot.persistence === 'error' ? (
             <View style={[styles.bannerRow, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.bannerText, { color: colors.danger }]} numberOfLines={3}>
+              <Text style={[styles.bannerText, { color: colors.danger }, hostFont(colors)]} numberOfLines={3}>
                 {snapshot.persistenceDetail}
               </Text>
               {snapshot.hasStoredRecovery ? (
@@ -407,7 +390,7 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
           ) : null}
 
           <ScrollView
-            style={styles.body}
+            style={[styles.body, { backgroundColor: colors.editor }]}
             contentContainerStyle={styles.bodyContent}
             keyboardShouldPersistTaps="handled"
             scrollEnabled={previewing}
@@ -457,11 +440,10 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
           </ScrollView>
 
           <View style={[styles.toolbar, { borderTopColor: colors.border, backgroundColor: colors.elevated }]}>
-            <MenuButton colors={colors} label="Task" onPress={() => runToolbar('task')} />
-            <MenuButton colors={colors} label="Bullet" onPress={() => runToolbar('bullet')} />
-            <MenuButton colors={colors} label="Heading" onPress={() => runToolbar('heading')} />
-            <MenuButton colors={colors} label="Stamp" onPress={() => runToolbar('stamp')} />
-            <Text style={[styles.counts, { color: colors.muted }]}>
+            {TOOLBAR.map(([kind, label]) => (
+              <MenuButton key={kind} colors={colors} label={label} onPress={() => runToolbar(kind)} />
+            ))}
+            <Text style={[styles.counts, { color: colors.muted }, font]}>
               {counts.openTasks} open · {counts.doneTasks} done
             </Text>
           </View>
@@ -486,7 +468,7 @@ function ResultBanner({
   if (snapshot.sendState === 'sent' && snapshot.lastSent) {
     return (
       <View style={[styles.bannerRow, { borderBottomColor: colors.border }]}>
-        <Text style={[styles.bannerText, { color: colors.text }]}>
+        <Text style={[styles.bannerText, { color: colors.text }, hostFont(colors)]}>
           Sent{snapshot.dirtySinceSend ? ' · changed since send' : ''}
           {snapshot.lastSent.expiresAt ? ` · expires ${formatExpiry(snapshot.lastSent.expiresAt)}` : ''}
         </Text>
@@ -507,7 +489,7 @@ function ResultBanner({
   if (snapshot.sendState === 'error') {
     return (
       <View style={[styles.bannerRow, { borderBottomColor: colors.border }]}>
-        <Text style={[styles.bannerText, { color: colors.danger }]} numberOfLines={3}>
+        <Text style={[styles.bannerText, { color: colors.danger }, hostFont(colors)]} numberOfLines={3}>
           {snapshot.sendError ?? 'Send failed.'}
         </Text>
         <MenuButton colors={colors} label="Retry" onPress={() => void onRetry()} />
@@ -541,7 +523,7 @@ function MenuButton({
       onPress={onPress}
       style={({ pressed }) => [styles.menuButton, { borderColor: colors.border, opacity: pressed ? 0.6 : 1 }]}
     >
-      <Text style={[styles.menuLabel, { color: destructive ? colors.danger : colors.text }]}>{label}</Text>
+      <Text style={[styles.menuLabel, { color: destructive ? colors.danger : colors.text }, hostFont(colors)]}>{label}</Text>
     </Pressable>
   );
 }
@@ -555,6 +537,10 @@ function statusLine(snapshot: ReturnType<typeof usePunchlist>): string {
   if (snapshot.persistence === 'saving') return 'Saving…';
   if (snapshot.persistence === 'memory') return 'Memory only';
   return 'Saved';
+}
+
+function hostFont(colors: ThemeColors) {
+  return colors.fontFamily ? { fontFamily: colors.fontFamily } : null;
 }
 
 function sameSelection(a: Selection, b: Selection): boolean {

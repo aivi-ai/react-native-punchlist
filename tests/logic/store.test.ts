@@ -1,6 +1,6 @@
 import { DEFAULT_ENDPOINT } from '../../src/constants';
 import { serializeEnvelope, storageKey, type Envelope } from '../../src/storage';
-import { PunchlistController } from '../../src/store';
+import { createController, type PunchlistController } from '../../src/store';
 import type { PunchlistStorage } from '../../src/types';
 
 /** Adapter with controllable latency and failure injection. */
@@ -50,7 +50,7 @@ function envelope(content: string, appId = 'default'): string {
 }
 
 function makeController(config: Partial<Parameters<PunchlistController['activate']>[0]> = {}): PunchlistController {
-  const controller = new PunchlistController();
+  const controller = createController();
   controller.claim(OWNER);
   controller.activate({
     appId: 'default',
@@ -62,7 +62,7 @@ function makeController(config: Partial<Parameters<PunchlistController['activate
 }
 
 describe('inactive controller', () => {
-  const controller = new PunchlistController();
+  const controller = createController();
 
   it('rejects or returns false for every action', async () => {
     expect(controller.open()).toBe(false);
@@ -89,7 +89,7 @@ describe('inactive controller', () => {
 describe('ownership', () => {
   it('allows one enabled owner, warns once, and reallows after release', () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const controller = new PunchlistController();
+    const controller = createController();
     const first = Symbol('first');
     const second = Symbol('second');
     expect(controller.claim(first)).toBe(true);
@@ -105,7 +105,7 @@ describe('ownership', () => {
   });
 
   it('does not activate anything by observing the store', () => {
-    const controller = new PunchlistController();
+    const controller = createController();
     const listener = jest.fn();
     const unsubscribe = controller.subscribe(listener);
     expect(controller.getSnapshot().hydrated).toBe(false);

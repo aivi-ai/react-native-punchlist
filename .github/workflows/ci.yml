@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Gate (build, types, lint, tests, sizes)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Types for the entry stubs come from the build output, so build first.
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      # Proves no timer / handle outlives a deactivated punchlist (RFC 0001 F9).
+      - run: npm run test:handles
+      - run: npm run test:server
+      - run: npm run size
+      # Metro on the packed tarball: production must contribute <= 1 KiB.
+      - run: npm run size:metro
+
+  pack:
+    name: Pack tarball
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run tarball
+      - name: Tarball contents are limited to the allowlist
+        run: |
+          npm pack --dry-run --json 2>/dev/null | node -e '
+            const files = JSON.parse(require("fs").readFileSync(0, "utf8"))[0].files.map((f) => f.path);
+            const allowed = /^(lib\/|src\/|entry\/|metro\/|LICENSE$|README\.md$|CHANGELOG\.md$|package\.json$)/;
+            const stray = files.filter((f) => !allowed.test(f));
+            if (stray.length) { console.error("Unexpected files in tarball:", stray); process.exit(1); }
+            console.log(files.length + " files, all allowed");
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball
+          path: build/*.tgz
+          if-no-files-found: error
+
+  fixtures:
+    name: Consumer fixture (${{ matrix.fixture }})
+    needs: pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # SDK 57, SDK 58, the lowest supported react / react-native, and strict-ESM webpack + react-native-web.
+        fixture: [consumer-sdk57, consumer-sdk58, consumer-min, web-webpack]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarball
+          path: build
+      - run: npm run check
+        working-directory: fixtures/${{ matrix.fixture }}

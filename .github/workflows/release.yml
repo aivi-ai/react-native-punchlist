@@ -1,0 +1,74 @@
+name: Release
+
+# Versioning uses Changesets. A merged changeset opens a "Version Packages" PR;
+# merging that PR publishes to the `next` dist-tag with npm provenance.
+# Promoting a version to `latest` is a deliberate, manual step (see RELEASING.md).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - ".changeset/**"
+      - ".github/workflows/release.yml"
+      - "package.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dry-run:
+    name: Release dry run
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build
+      - run: npm run tarball
+      # Nothing is published: this proves the publish step would succeed.
+      - run: npm publish --dry-run --tag next --provenance=false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-dry-run-tarball
+          path: build/*.tgz
+          if-no-files-found: error
+
+  release:
+    name: Version or publish
+    if: github.event_name == 'push' && github.repository == 'aivi-ai/react-native-punchlist'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write # npm trusted publishing + provenance (OIDC); no long-lived NPM_TOKEN
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build
+      - run: npm run gate
+      - uses: changesets/action@v1
+        with:
+          version: npm run version
+          publish: npm run release
+          title: "chore: version packages"
+          commit: "chore: version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

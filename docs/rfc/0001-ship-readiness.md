@@ -2,7 +2,7 @@
 
 | | |
 | --- | --- |
-| Status | **Accepted (decisions D1–D7 resolved 2026-10-20) — ready for implementation** |
+| Status | **Implemented on `feat/ship-readiness` (2026-10-20); see §12 for deviations and what is still open** |
 | Date | 2026-10-20 |
 | Scope | `react-native-punchlist@0.1.0` client package (receivers in `server/` only where they affect the release) |
 | Baseline | `main` @ `2ad9a21` |
@@ -452,3 +452,34 @@ All seven were resolved by the maintainer on 2026-10-20.
 - **Device behaviour is still unverified.** Keyboard geometry, gestures and
   screen readers are only unit-tested. Hence the `next` tag until §9's
   verification pass.
+
+---
+
+## 12. Implementation notes (2026-10-20)
+
+All of PR-1…PR-8 landed on one branch. What differs from the plan above:
+
+- **Entry shape.** The Metro experiment showed `react-native` is *not* a
+  condition Metro sets, so the bundler entry also sits behind `import` and
+  `default`; and a compiled (Babel) switch was 771 B on its own. The switch and
+  the stub are therefore hand-written CommonJS in `entry/` (see DECISIONS 29–32).
+  Result on the packed tarball: **1,019 B** contributed to a production bundle
+  (gate ≤1,024 B), verified again in Expo SDK 58 iOS (Hermes) and web exports.
+- **F10 was real** (webpack 5 rejected `../platform`). Fixed with a `#platform`
+  import map instead of the proposed `exports` subpath, so no self-reference by
+  package name is needed (DECISIONS 33).
+- **Size (D3).** The closure refactor (S1) saved ~5.9 KiB; S3/S4 saved almost
+  nothing in gzip because they remove repetition, which gzip already removes.
+  Host theming (D6) then added ~1.4 KiB. Final: 48.9 KiB min / 17.5 KiB gzip —
+  the ≤48 / ≤16 KiB goals are **not met**; the guard is ≤50 / ≤18 KiB. Closing
+  the gap needs S5/S6, which D3 put out of scope.
+- **Peers (F6).** Floors are `react >=19.1.0`, `react-native >=0.81.0`, verified
+  by the new `consumer-min` fixture (typecheck + resolution only; not a runtime
+  run at that version).
+- **Changesets.** The first publish is `0.1.0` as-is (no pending changeset);
+  later releases use changesets. `release.yml` and `ci.yml` parse but have not
+  run on GitHub; trusted publishing must be configured on npm first
+  (`RELEASING.md`).
+- **Not done / not possible here:** the simulator/emulator/browser verification
+  pass, the themed screenshots, activation→focus timing and promotion to
+  `latest` (all NOT RUN in `VALIDATION.md` §0). `0.1.0` should go to `next` only.
