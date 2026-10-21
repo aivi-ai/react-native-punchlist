@@ -1,0 +1,8 @@
+'use strict';
+
+/** The `require` twin of ./expo-router.js. */
+/* eslint-disable @typescript-eslint/no-require-imports -- the switch must be a literal require() so bundlers fold it */
+module.exports =
+  process.env.NODE_ENV === 'production'
+    ? require('./expo-router.noop')
+    : require('../lib/commonjs/adapters/expo-router');

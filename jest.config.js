@@ -11,11 +11,13 @@ module.exports = {
       displayName: 'logic',
       testEnvironment: 'node',
       testMatch: ['<rootDir>/tests/logic/**/*.test.ts'],
+      moduleNameMapper: { '^#platform$': '<rootDir>/src/platform/index.ts' },
       transform: { '^.+\\.(t|j)sx?$': 'babel-jest' },
     },
     {
       displayName: 'ui',
       preset: '@react-native/jest-preset',
+      moduleNameMapper: { '^#platform$': '<rootDir>/src/platform/index.ts' },
       testMatch: ['<rootDir>/tests/ui/**/*.test.tsx'],
       setupFilesAfterEnv: ['<rootDir>/tests/ui/setup.ts'],
       transform: {

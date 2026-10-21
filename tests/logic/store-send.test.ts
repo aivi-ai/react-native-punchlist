@@ -1,5 +1,5 @@
 import { serializeEnvelope, storageKey } from '../../src/storage';
-import { PunchlistController } from '../../src/store';
+import { createController, type PunchlistController } from '../../src/store';
 import type { PunchlistPayload, PunchlistStorage, SendResult } from '../../src/types';
 import { utf8Bytes } from '../../src/util';
 
@@ -20,7 +20,7 @@ const OWNER = Symbol('owner');
 const tick = (ms = 5) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function controllerWith(config: Partial<Parameters<PunchlistController['activate']>[0]> = {}): PunchlistController {
-  const controller = new PunchlistController();
+  const controller = createController();
   controller.claim(OWNER);
   controller.activate({
     appId: 'default',

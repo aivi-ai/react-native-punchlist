@@ -156,6 +156,27 @@ export interface PunchlistErrorLike extends Error {
   status?: number;
 }
 
+/**
+ * Structurally compatible with React Navigation's `Theme`, so hosts can pass
+ * the same object they give to `<ThemeProvider value={…}>`.
+ */
+export interface PunchlistTheme {
+  dark: boolean;
+  colors: {
+    /** FAB and primary actions. */
+    primary: string;
+    /** Behind the editor and the preview. */
+    background: string;
+    /** The sheet surface. */
+    card: string;
+    text: string;
+    border: string;
+    notification?: string;
+  };
+  /** Only `fonts.regular.fontFamily` is used (labels and the toolbar). */
+  fonts?: { regular?: { fontFamily?: string; fontWeight?: string } };
+}
+
 /** Props of the `<Punchlist />` component. */
 export interface PunchlistProps {
   /** Required. When false the component renders nothing and starts no work. */
@@ -180,8 +201,12 @@ export interface PunchlistProps {
   prefillScreen?: boolean;
   /** Initial FAB edge. Default `'bottom-right'`. */
   position?: 'bottom-left' | 'bottom-right';
-  /** Color scheme for the FAB/sheet. Default `'auto'`. */
-  theme?: 'auto' | 'light' | 'dark';
+  /**
+   * Color scheme for the FAB/sheet. Default `'auto'`. Pass a React Navigation
+   * style theme (`useTheme()` / the object given to `ThemeProvider`) to match
+   * the host app; no navigation package is imported.
+   */
+  theme?: 'auto' | 'light' | 'dark' | PunchlistTheme;
   /** Accent color for the FAB and primary actions. */
   accentColor?: string;
   /** Web keyboard shortcut, or false to disable. Default `'mod+shift+period'`. */

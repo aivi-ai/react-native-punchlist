@@ -1,0 +1,21 @@
+{
+  "name": "punchlist-consumer-min",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Clean consumer fixture: the packed tarball installed against the lowest supported react 19.1 / RN 0.81 with no source aliases.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "resolve": "node resolve.mjs",
+    "check": "npm run install:fixture && npm run resolve && npm run typecheck",
+    "install:fixture": "npm install --no-package-lock --no-audit --no-fund"
+  },
+  "dependencies": {
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-punchlist": "file:../../build/react-native-punchlist-0.1.0.tgz"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.0",
+    "typescript": "~5.9.3"
+  }
+}

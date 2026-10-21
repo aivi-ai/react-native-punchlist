@@ -1,12 +1,36 @@
 # Validation
 
-Every gate below was executed on this machine (Linux, Node **v22.23.2**, npm
+Sections 1–6 record the original candidate: every gate there was executed on a Linux box (Node **v22.23.2**, npm
 **10.9.8**, 2 GB RAM, no device/simulator/browser automation). Each row records
 the exact command and the observed result. **A failed or unrun gate is not a
 pass**; the status labels are `PASS`, `FAIL`, or `NOT RUN`.
 
 Artifact under test: `build/react-native-punchlist-0.1.0.tgz` produced by
 `npm pack` from `lib/` built by `react-native-builder-bob`.
+
+## 0. RFC 0001 re-validation (2026-10-20, macOS, Node v22.20.0)
+
+Re-run after implementing `docs/rfc/0001-ship-readiness.md`. Sections 1–6 below
+are the original 0.1.0 candidate record; where a row there disagrees with this
+section, **this section wins** (rows 4, 7–10, 13–20c are superseded).
+
+| # | Gate | Command | Result | Status |
+| --- | --- | --- | --- | --- |
+| R1 | Build, types, lint, tests, receivers, sizes | `npm run gate` | exit 0: **146 client tests** (11 suites), **67 receiver tests**, typecheck + lint clean | PASS |
+| R2 | No leaked handles | `npm run test:handles` (`jest --detectOpenHandles`) | 146 passed, no open handles reported. A plain multi-worker `jest` run still prints a "worker failed to exit" notice from the `logic` project; it is identical on the pre-RFC baseline and not caused by our timers | PASS |
+| R3 | Lifecycle regression (F1/F2) | `tests/ui/punchlist.test.tsx` — 1 read per mount; sheet stays open and storage untouched across host re-renders with inline `insets`/`meta`/`getContext`/`headers`/`onOpen`; a real storage swap still re-hydrates | the three new tests fail on the pre-RFC code and pass now | PASS |
+| R4 | Production exclusion on the packed tarball | `npm run size:metro` (Metro 0.87.1, iOS) | baseline 802,440 B · dev +143,853 B · **prod: 1,019 B in 2 package modules (budget 1,024 B)** · prod + `includeInProduction`: +63,163 B, exactly one controller instance even when `/full` is imported too | PASS |
+| R5 | Same, in real Expo SDK 58 (`example/`) | `npx expo export --platform ios` → Hermes `.hbc` `strings` | default: no `Punch list notes` / `second enabled` markers (2,508,923 B); `EXPO_PUBLIC_PUNCHLIST=1` + `metro.config.js` opt-in: both present (2,621,031 B) | PASS |
+| R6 | Same, web (Expo SDK 58 static export) | `npx expo export --platform web`, grep the route chunks | default: real tool absent; opt-in: present and the **web** platform layer chosen via `#platform`/`browser` (native layer absent) | PASS |
+| R7 | Example typecheck against the real `expo-router` types | `cd example && npx tsc --noEmit` | exit 0 with `<PunchlistForExpoRouter />` | PASS |
+| R8 | Consumer fixtures | `npm run check` in `consumer-sdk58` (RN 0.88), `consumer-sdk57` (RN 0.86), `consumer-min` (**react 19.1.0 / RN 0.81.5**) | every subpath resolves to published output (never `src/`), every `exports` target exists, `NODE_ENV=production` loads the inert build in bare Node, types compile, dependencies empty | PASS |
+| R9 | Strict-ESM bundler (F10) | `cd fixtures/web-webpack && npm run check` (webpack 5.112 + react-native-web) | **Reproduced the F10 failure** (`Can't resolve '../platform'`), fixed with a `#platform` import map; dev bundles the real tool + web layer, production only the stub, aliasing to `/full` opts in | PASS |
+| R10 | Tarball contents (F7) | `npm pack --dry-run` | 250 files: `lib/`, `src/`, `entry/`, `metro/`, README, LICENSE, CHANGELOG, `package.json`; no maintainer docs | PASS |
+| R11 | Dev bundle size | `npm run size` | **50,060 B min (48.89 KiB), 17,936 B gzip (17.52 KiB)** vs RFC goal ≤48 / ≤16 KiB — goal **not met**, guard ≤50 / ≤18 KiB passes | PARTIAL |
+| R12 | Host-theme contrast | `tests/logic/theme.test.ts` — AA for text, muted, danger, accent-on-primary, editor and elevated across navigation light/dark, a branded and a deliberately low-contrast palette | 11 passed | PASS |
+| R13 | CI workflows parse | `python -c "yaml.safe_load(...)"` on `ci.yml`, `release.yml` | parse OK. **Not run on GitHub**: no pipeline run exists yet | NOT RUN |
+| R14 | Screenshots of the themed sheet (PR-7) | — | **NOT RUN** (no device/simulator pass yet) | NOT RUN |
+| R15 | Device matrix (`MANUAL_TEST.md`), activation→focus timing | — | **NOT RUN** — hence the `next` dist-tag until a maintainer records PASS | NOT RUN |
 
 ## 1. Reproducible package gates
 

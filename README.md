@@ -6,6 +6,9 @@ prefilled, stores one editable document per `appId` through a host-provided
 adapter, and sends **only** when you explicitly press Send.
 
 - **Zero runtime dependencies.** `react` and `react-native` are the only peers.
+- **Gone from production by default.** Production bundles contain a ~1 KiB inert
+  stub; you opt a preview build back in with one line of Metro config
+  ([Releasing your app](#releasing-your-app)).
 - **No network activity** unless you configure a destination and press Send.
 - **Local-first.** Notes live in your storage adapter until you send them.
 
@@ -40,36 +43,42 @@ npx expo install @react-native-async-storage/async-storage react-native-safe-are
 ```
 
 ```tsx
+// app/_layout.tsx — mount once, as the last child of the root layout
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useSegments } from 'expo-router';
-import { Punchlist } from 'react-native-punchlist';
+import { PunchlistForExpoRouter } from 'react-native-punchlist/expo-router';
 
-// No hooks inside getContext — read a committed value instead.
-export function ScreenNameReporter() {
-  const segments = useSegments();
-  const label = useScreenLabel(segments);   // your mapping, see below
-  return <Punchlist enabled={__DEV__ || process.env.EXPO_PUBLIC_PUNCHLIST === '1'} appId="my-app"
-    storage={AsyncStorage} insets={useSafeAreaInsets()} getContext={() => ({ screen: label })}
-    meta={{ build: 'preview' }} />;
-}
-```
-
-```ts
-// your route → friendly-name mapping
-const MAP: Record<string, string> = {
+const SCREENS = {
   '(shop)/checkout': 'CheckoutScreen',
   'products/[id]': 'ProductScreen',
 };
-export function useScreenLabel(segments: string[]) {
-  const key = segments.join('/');
-  return MAP[key] ?? segments[segments.length - 1] ?? 'Unknown';
+
+export default function RootLayout() {
+  return (
+    <>
+      <Stack />
+      <PunchlistForExpoRouter
+        enabled={__DEV__ || process.env.EXPO_PUBLIC_PUNCHLIST === '1'}
+        appId="my-app"
+        storage={AsyncStorage}
+        screens={SCREENS}
+      />
+    </>
+  );
 }
 ```
 
-`useSegments()` is used inside the component and the *committed* value is read by
-`getContext`, so the capture never calls a hook. Search params, dynamic ids and
-full URLs are deliberately not collected.
+The adapter reads `useSegments()`, the safe-area insets and your navigation
+theme itself, and keeps all of it out of `getContext`, which only reads the
+*committed* route label. Search params, dynamic ids and full URLs are
+deliberately not collected. `expo-router` and `react-native-safe-area-context`
+are **optional** peers, needed only when you import this subpath. A route is
+looked up as written, then by shorter prefixes, then without `(group)`
+segments; unmapped routes fall back to the capitalised last segment.
+
+You do not need one mount per screen: a single root mount is the whole
+integration. For a precise component label call
+`punchlist.addTask(text, { component: 'CartRow' })` from anywhere; that is
+optional.
 
 The full example app lives in [`example/`](./example) — long scrolling list,
 many-input form, nested navigation and a native modal, each with a deterministic
@@ -91,7 +100,7 @@ getContext={() => ({ screen: currentScreenName })}
 ```
 
 Fixtures for both live in [`fixtures/`](./fixtures). Use the Expo Router
-integration in an Expo Router host; do not assume a modern Expo Router app can
+adapter in an Expo Router host; do not assume a modern Expo Router app can
 import external React Navigation packages interchangeably.
 
 ## API
@@ -129,7 +138,7 @@ interface PunchlistPayload {
 | `getContext` | — | Synchronous, host-owned capture resolver. |
 | `prefillScreen` | `true` | `false` inserts a plain `- [ ] `. |
 | `position` | `'bottom-right'` | Initial FAB edge only; the dragged position persists. |
-| `theme` | `'auto'` | `'auto' \| 'light' \| 'dark'`. |
+| `theme` | `'auto'` | `'auto' \| 'light' \| 'dark'`, or a React Navigation-style theme object (`{ dark, colors: { primary, background, card, text, border }, fonts? }`) so the sheet matches your app. Unreadable host colors are replaced, never rendered. |
 | `accentColor` | theme accent | FAB and primary actions. |
 | `hotkey` | `'mod+shift+period'` | Web only; `false` disables. |
 | `onOpen` / `onClose` | — | Host callbacks. |
@@ -144,24 +153,51 @@ opening the sheet and never sends.
 `hydrated`, `persistence`, `sendState`, `lastSent`, `captureLabel`, `canUndo`, …)
 plus those actions. Observing the hook does **not** activate anything.
 
-## Preview visibility and build exclusions
+## Releasing your app
 
-```tsx
-<Punchlist enabled={__DEV__ || process.env.EXPO_PUBLIC_PUNCHLIST === '1'} />
+Leave the integration lines in your app permanently. Whether the tool is in a
+bundle is decided by **build configuration**, not by app code, so releasing is
+an empty diff:
+
+| Build | What `react-native-punchlist` resolves to |
+| --- | --- |
+| Development | The real implementation. |
+| Production (default) | An inert stub (about 1 KiB): `<Punchlist />` renders `null`, actions return `false` or reject with `inactive`, `usePunchlist()` returns the idle snapshot. |
+| Production **with** `includeInProduction` | The real implementation, for internal/preview builds. |
+
+Metro folds `process.env.NODE_ENV` and drops the dead branch *before* it
+collects dependencies, so the implementation is not in the production graph at
+all. Opt a preview build in once, in `metro.config.js`:
+
+```js
+const { getDefaultConfig } = require('expo/metro-config');
+const { withPunchlist } = require('react-native-punchlist/metro');
+
+module.exports = withPunchlist(getDefaultConfig(__dirname), {
+  includeInProduction: process.env.EXPO_PUBLIC_PUNCHLIST === '1',
+});
 ```
 
-EAS preview profile:
+and set the same variable in your EAS preview profile:
 
 ```json
 { "build": { "preview": { "env": { "EXPO_PUBLIC_PUNCHLIST": "1" } } } }
 ```
 
-The flag is **visibility configuration, not a security boundary**, and runtime
-disabling does not remove code from the bundle. For real exclusion, alias the
-module to a no-op shim in your bundler for production (e.g. a Metro
-`resolveRequest`/`extraNodeModules` alias pointing at a file that exports an
-inert `Punchlist`, `usePunchlist` and `punchlist`). A conditional import alone
-does not guarantee Metro tree-shakes the module graph — do not rely on it.
+`enabled` still controls runtime visibility inside a build that contains the
+tool. If you forget the preview opt-in, the FAB is missing from the preview
+build — visible and harmless — instead of shipping a debug notepad.
+
+- Subpaths: `react-native-punchlist/full` always imports the real
+  implementation (opt out of the switch), `/noop` the stub, `/testing` pure
+  helpers for host tests (not covered by semver).
+- Webpack / Vite with `react-native-web`: the same switch applies through
+  `process.env.NODE_ENV`, and bundlers that honour the `production` export
+  condition get the stub directly. To include the tool in a production web
+  build, alias `react-native-punchlist` to `react-native-punchlist/full`.
+- The flag is **visibility configuration, not a security boundary**; the
+  guarantee is what the production bundle contains, which `npm run size:metro`
+  verifies on the packed tarball.
 
 ## Sending
 
@@ -226,12 +262,15 @@ you, and `DEFAULT_ENDPOINT` stays `false` until a maintained service exists.
 ## Development
 
 ```bash
-npm run typecheck && npm run lint && npm test && npm run test:server
-npm run build && npm run size && npm run tarball
+npm run gate   # build, typecheck, lint, tests, receivers, bundle sizes
+npm run tarball
 ```
 
-`DECISIONS.md` records consequential choices, `COMPATIBILITY.md` the tested
-version matrix, `VALIDATION.md` every gate with its observed result,
-`MANUAL_TEST.md` the device matrix, `CHANGELOG.md` the history.
+The repository also holds [`DECISIONS.md`](https://github.com/aivi-ai/react-native-punchlist/blob/main/DECISIONS.md)
+(consequential choices), [`COMPATIBILITY.md`](https://github.com/aivi-ai/react-native-punchlist/blob/main/COMPATIBILITY.md)
+(tested version matrix), [`VALIDATION.md`](https://github.com/aivi-ai/react-native-punchlist/blob/main/VALIDATION.md)
+(every gate with its observed result) and
+[`MANUAL_TEST.md`](https://github.com/aivi-ai/react-native-punchlist/blob/main/MANUAL_TEST.md)
+(the device matrix); [`CHANGELOG.md`](./CHANGELOG.md) ships with the package.
 
 MIT licensed.

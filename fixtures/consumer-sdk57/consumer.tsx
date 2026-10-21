@@ -18,6 +18,22 @@ import {
   type SendResult,
   type Context,
 } from 'react-native-punchlist';
+import { Punchlist as FullPunchlist, type PunchlistTheme } from 'react-native-punchlist/full';
+import { Punchlist as InertPunchlist } from 'react-native-punchlist/noop';
+import { parseDocument } from 'react-native-punchlist/testing';
+import { withPunchlist } from 'react-native-punchlist/metro';
+
+/** A React Navigation `Theme` is assignable as-is. */
+const navigationTheme: PunchlistTheme = {
+  dark: false,
+  colors: { primary: '#007aff', background: '#f2f2f2', card: '#ffffff', text: '#1c1c1e', border: '#d8d8d8', notification: '#ff3b30' },
+  fonts: { regular: { fontFamily: 'System', fontWeight: '400' } },
+};
+
+// The real and inert builds are interchangeable.
+export const builds = [FullPunchlist, InertPunchlist];
+export const metroConfig = withPunchlist({ resolver: {} }, { includeInProduction: false });
+export const document = parseDocument('- [ ] one');
 
 const memory: PunchlistStorage = {
   getItem: async () => null,
@@ -37,7 +53,7 @@ export function Consumer() {
     insets: { top: 0, right: 0, bottom: 0, left: 0 },
     endpoint: DEFAULT_ENDPOINT,
     prefillScreen: true,
-    theme: 'auto',
+    theme: navigationTheme,
     position: 'bottom-right',
     getContext: () => context,
     onSend: async (payload: PunchlistPayload, options): Promise<SendResult | void> => {

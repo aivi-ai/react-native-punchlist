@@ -131,3 +131,43 @@ with the trade-offs in view.
 28. **`sideEffects: false`** and a type-only `types.ts`, so bundlers can drop
     unused modules; nothing runs at import time (no storage probe, listener,
     timer or network call).
+
+## Ship readiness (RFC 0001, 2026-10-20)
+
+Amends 27 and the size target; the maintainer's answers D1–D7 are in
+`docs/rfc/0001-ship-readiness.md` §10.
+
+29. **The root is a build-time switch** (D1: no-op by default). `entry/index.js`
+    is `NODE_ENV === 'production' ? require('./noop') : require('../lib/module/full')`;
+    Metro folds the dead branch before it collects dependencies, so the real
+    tool is not in the production graph. A resolver (`react-native-punchlist/metro`),
+    not an env check inside the package, handles the preview opt-in because only
+    `NODE_ENV`/`__DEV__` fold reliably inside `node_modules`. `enabled` stays
+    required in 0.x (D2).
+30. **The inert build is hand-written CommonJS** (`entry/noop.js`) to fit the
+    ≤1 KiB production gate; the compiled equivalent was 1.4 KiB because of
+    Babel's export boilerplate. It cannot drift: `tests/ui/noop.test.tsx` holds
+    its export names, constants and inactive behaviour to the real build, and
+    its types *are* the real build's (`entry/noop.d.ts`).
+31. **Public surface trimmed** (D4): helpers moved to `/testing`, `store` and
+    `PunchlistController` are internal. The controller is a closure
+    (`createController`) so a minifier can rename its state.
+32. **Exports conditions:** `react-native` is not a condition Metro sets by
+    default, so the bundler entry is also behind `import`/`default`. `production`
+    maps to the stub for webpack/Vite; `node` + `import` maps to the real build
+    because plain Node ESM has no `require` for the switch.
+33. **Platform layer by condition, not file extension.** `#platform` (package
+    `imports`, written into the generated `lib/*/package.json` by
+    `scripts/postbuild.mjs` because `imports` are scoped to the nearest
+    package.json) selects `index.web.js` for the `browser` condition. Metro's
+    `.web.js` extension substitution does not exist in strict-ESM bundlers; the
+    old `../platform` directory import failed in webpack 5 (reproduced).
+34. **Host theming without a navigation import** (D6): `theme` accepts a
+    structural, React Navigation-compatible object. Text pairs are held to WCAG
+    AA against the actual surface and replaced with readable colors when the
+    host palette fails.
+35. **`/expo-router` adapter in 0.1** (D5) with optional peers and its own
+    inert twin; it reads `useTheme` only when the installed router exports it.
+36. **Size:** the dev bundle was re-baselined (D3) but the numeric goal
+    (≤48 KiB / ≤16 KiB gzip) is not met after host theming (48.9 / 17.5 KiB);
+    the guard sits at ≤50 / ≤18 KiB and the preview split (S5) stays deferred.
