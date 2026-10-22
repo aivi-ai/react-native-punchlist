@@ -222,12 +222,15 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
       }}
       supportedOrientations={['portrait', 'portrait-upside-down', 'landscape', 'landscape-left', 'landscape-right']}
     >
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.root}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={[styles.root, { paddingTop: insets.top }]}
+      >
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Dismiss punch list"
           onPress={close}
-          style={[styles.backdrop, { backgroundColor: colors.backdrop }]}
+          style={[styles.backdrop, { top: -insets.top, backgroundColor: colors.backdrop }]}
         />
         <Animated.View
           style={[
@@ -359,7 +362,6 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
             style={[styles.body, { backgroundColor: colors.editor }]}
             contentContainerStyle={styles.bodyContent}
             keyboardShouldPersistTaps="handled"
-            automaticallyAdjustKeyboardInsets
             scrollEnabled={previewing}
           >
             <View
@@ -523,7 +525,7 @@ function formatExpiry(value: string): string {
 const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, overflow: 'hidden', maxHeight: '100%' },
+  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, overflow: 'hidden', flexShrink: 1 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1 },
   headerGrip: { paddingVertical: 8, paddingHorizontal: 4, minHeight: 48, justifyContent: 'center' },
   grip: { width: 28, height: 4, borderRadius: 2 },
