@@ -110,9 +110,19 @@ with the trade-offs in view.
     `importantForAccessibility` rather than unmounted. Focus is requested as
     soon as the modal/input exists — never gated on the animation — with a
     visible “Tap to type” affordance when the browser declines the keyboard.
-24. **Keyboard geometry is a pure function** operating on window-normalized
-    coordinates and clamped to the container, so a resized window cannot get
-    keyboard padding twice; web uses `visualViewport` where available.
+24. **Keyboard handling is delegated to `KeyboardAvoidingView`**, not re-derived
+    from keyboard frames. The sheet carries no keyboard arithmetic:
+    `sheetHeight()` takes no keyboard argument and the sheet is capped with
+    `maxHeight: '100%'`, so the platform shrinks it when the keyboard claims
+    space — `behavior: 'padding'` on iOS, undefined on Android, where the window
+    itself resizes. The editor `ScrollView` also sets
+    `automaticallyAdjustKeyboardInsets` so the caret stays visible once the
+    notes outgrow the sheet. Superseded the earlier approach of computing the
+    overlap from `keyboardDidShow` / `visualViewport` frames: it shrank the
+    sheet by the keyboard inset *and* padded the sheet by the same inset, so the
+    content box lost the keyboard height twice and the sheet was clipped away
+    entirely on a small device once the keyboard was up (iPhone SE, 336pt
+    keyboard: a -25pt content box).
 25. **Insets**: host-supplied insets are authoritative; otherwise explicit
     conservative defaults (Android status-bar height when readable, iOS 44/34,
     web 0) are labelled approximate. No safe-area package is imported.
