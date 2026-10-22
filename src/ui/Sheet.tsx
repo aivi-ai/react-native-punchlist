@@ -222,7 +222,7 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
               onPress={() => setExpanded((value) => !value)}
               style={styles.iconButton}
             >
-              <Text style={[styles.iconLabel, { color: colors.text }]}>{expanded ? '▾' : '▴'}</Text>
+              <Chevron color={colors.text} direction={expanded ? 'down' : 'up'} />
             </Pressable>
             <Pressable
               accessibilityRole="button"
@@ -434,6 +434,23 @@ function MenuButton({
   );
 }
 
+/**
+ * A drawn chevron: the bottom-right corner of a small square, rotated. Text
+ * glyphs (▴ ▾) render as solid triangles whose size and weight depend on the
+ * host font.
+ */
+function Chevron({ color, direction }: { color: string; direction: 'up' | 'down' }): ReactElement {
+  const up = direction === 'up';
+  return (
+    <View
+      style={[
+        styles.chevron,
+        { borderColor: color, transform: [{ translateY: up ? 2 : -2 }, { rotate: up ? '-135deg' : '45deg' }] },
+      ]}
+    />
+  );
+}
+
 function statusLine(snapshot: ReturnType<typeof usePunchlist>): string {
   if (snapshot.persistence === 'loading') return 'Loading notes…';
   if (snapshot.sendState === 'sending') return 'Sending…';
@@ -469,6 +486,7 @@ const styles = StyleSheet.create({
   primaryLabel: { fontSize: 15, fontWeight: '600' },
   iconButton: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   iconLabel: { fontSize: 17 },
+  chevron: { width: 9, height: 9, borderRightWidth: 2, borderBottomWidth: 2, borderRadius: 1 },
   menu: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1 },
   menuButton: { minHeight: 48, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   menuLabel: { fontSize: 14, fontWeight: '500' },
