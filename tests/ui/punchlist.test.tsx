@@ -81,6 +81,22 @@ describe('<Punchlist />', () => {
     await waitFor(() => expect(editorValue()).toContain('fix the copy'));
   });
 
+  it('leaves the caret to the native editor and keeps typed text verbatim', async () => {
+    await render(<Punchlist enabled appId="plain-editor" getContext={() => ({ screen: 'Checkout' })} />);
+    layout();
+    fireEvent.press(await screen.findByLabelText(/^Open punch list/));
+
+    const editor = await screen.findByLabelText('Punch list notes');
+    // A controlled selection snaps the caret back on every keystroke.
+    expect(editor.props.selection).toBeUndefined();
+    expect(screen.queryByLabelText('Task')).toBeNull();
+    expect(screen.queryByLabelText('Bullet')).toBeNull();
+
+    // Enter after a task line is a plain newline: no list continuation.
+    fireEvent.changeText(editor, '- [ ] Checkout: fix the copy\n');
+    await waitFor(() => expect(editorValue()).toBe('- [ ] Checkout: fix the copy\n'));
+  });
+
   it('survives StrictMode double-mounting with a single owner', async () => {
     const storage = memoryStorage();
     await render(

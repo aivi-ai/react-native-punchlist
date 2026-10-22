@@ -18,18 +18,7 @@ import {
 import { PunchlistError } from './errors';
 import { IDLE_SNAPSHOT } from './snapshot';
 import type { Selection } from './insertion';
-import {
-  applyInsert,
-  applySmartList,
-  lineBoundsAt,
-  linePrefixInsertion,
-  newTaskInsertion,
-  planCloseRemoval,
-  planOpenInsertion,
-  stampLine,
-  type DraftLine,
-  type InsertionResult,
-} from './insertion';
+import { applyInsert, lineBoundsAt, planCloseRemoval, planOpenInsertion, type DraftLine } from './insertion';
 import { isSendableContent, statsFor } from './markdown';
 import {
   createMemoryStorage,
@@ -688,53 +677,13 @@ async function retry(): Promise<SendResult | void> {
 
 // ------------------------------------------------------------ editor bridges
 
-/** Typing/edit from the controlled TextInput. Handles smart-list continuation. */
-function applyEditorChange(previous: string, next: string): InsertionResult | null {
-  if (!active()) return null;
-  const smart = applySmartList(previous, next, {
-    taskPrefix: capture?.prefix ?? '- [ ] ',
-    trackedPrefix: draft?.prefix ?? null,
-  });
-  return smart;
-}
-
-/** Commit an editor value (after smart-list handling, if any). */
+/** Commit the editor's text exactly as typed. */
 function commitEditorText(next: string): boolean {
   if (!active()) return false;
   draft = null;
   const op = diffOp(content, next);
   setContentInternal(next, { op, skipOp: hydrated });
   return true;
-}
-
-/** Toolbar insertions driven by the editor's current selection. */
-function applyToolbar(kind: 'task' | 'bullet' | 'heading' | 'stamp', selection: Selection): InsertionResult | null {
-  if (!active() || !isOpen) return null;
-  let result: InsertionResult;
-  switch (kind) {
-    case 'task':
-      result = newTaskInsertion(content, selection, capture?.prefix ?? '- [ ] ');
-      break;
-    case 'bullet':
-      result = linePrefixInsertion(content, selection, '- ');
-      break;
-    case 'heading':
-      result = linePrefixInsertion(content, selection, '## ');
-      break;
-    case 'stamp':
-      result = applyInsert(
-        content,
-        selection,
-        stampLine(capture?.label ?? null, platformLabel(config.platform), new Date()) + '\n',
-      );
-      break;
-    default:
-      return null;
-  }
-  draft = null;
-  const op = diffOp(content, result.content);
-  setContentInternal(result.content, { op, skipOp: hydrated });
-  return result;
 }
 
 /** Toggle a preview checkbox by its exact source span, guarded by revision. */
@@ -1038,8 +987,6 @@ async function performSend(attempt: SendAttempt, generation: number): Promise<Se
     activate,
     addTask,
     append,
-    applyEditorChange,
-    applyToolbar,
     claim,
     clear,
     close,
@@ -1118,11 +1065,6 @@ async function readErrorBody(response: { text?: () => Promise<string> }): Promis
   } catch {
     return null;
   }
-}
-
-function platformLabel(platform: { os: string; version: string }): string {
-  if (platform.os === '' || platform.os === 'unknown') return 'unknown platform';
-  return platform.version === '' ? platform.os : `${platform.os} ${platform.version}`;
 }
 
 function contextForLabel(context: Context): string | null {

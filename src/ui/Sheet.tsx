@@ -1,13 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentProps,
-  type ComponentRef,
-  type ReactElement,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactElement } from 'react';
 import {
   Animated,
   Easing,
@@ -29,7 +20,6 @@ import { countTasks } from '../markdown';
 import * as platform from '#platform';
 import { store } from '../store';
 import type { Insets, PunchlistErrorLike } from '../types';
-import type { Selection } from '../insertion';
 import { utf8Bytes } from '../util';
 import { usePunchlist } from '../usePunchlist';
 import { Preview } from './Preview';
@@ -42,24 +32,17 @@ export interface SheetProps {
   reduceMotion: boolean;
 }
 
-/** Selection-change event payload, derived from the installed RN types. */
-type SelectionEvent = Parameters<NonNullable<ComponentProps<typeof TextInput>['onSelectionChange']>>[0];
-
 type Overlay = 'none' | 'menu';
-
-const EMPTY_SELECTION: Selection = { start: 0, end: 0 };
-
-const TOOLBAR = [
-  ['task', 'Task'],
-  ['bullet', 'Bullet'],
-  ['heading', 'Heading'],
-  ['stamp', 'Stamp'],
-] as const;
 
 /**
  * Open-state sheet: a transparent RN Modal with a custom 220ms animation, a
- * compact/expanded height, a single controlled multiline editor, a bounded
- * markdown preview, toolbar insertions and the send/share banner.
+ * compact/expanded height, a plain multiline editor, a bounded markdown
+ * preview and the send/share banner.
+ *
+ * The editor owns its caret. The sheet places it once on open (after the
+ * prefilled screen line) and never pushes a selection back afterwards: a
+ * controlled `selection` prop races the native caret and snaps it back on
+ * every keystroke.
  */
 export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): ReactElement | null {
   const snapshot = usePunchlist();
@@ -71,18 +54,11 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
 
   const input = useRef<ComponentRef<typeof TextInput> | null>(null);
   const progress = useRef(new Animated.Value(0)).current;
-  const textRef = useRef(snapshot.content);
-  const selectionRef = useRef<Selection>(EMPTY_SELECTION);
-  const [override, setOverride] = useState<Selection | null>(null);
 
   const sheet = useMemo(() => sheetHeight(expanded, container, insets), [expanded, container, insets]);
 
-  // Keep a shadow copy of the document for smart-list diffs.
-  useEffect(() => {
-    textRef.current = snapshot.content;
-  }, [snapshot.content]);
-
-  // Focus as soon as the modal/input exist — never after the animation.
+  // Focus as soon as the modal/input exist — never after the animation — and
+  // place the caret once, after the prefilled screen line.
   useEffect(() => {
     if (!snapshot.isOpen) {
       progress.setValue(0);
@@ -90,18 +66,17 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
       setOverlay('none');
       return undefined;
     }
-    const hintSelection = store.takeOpenSelection();
-    if (hintSelection) {
-      selectionRef.current = hintSelection;
-      setOverride(hintSelection);
-    }
+    const caret = store.takeOpenSelection();
     Animated.timing(progress, {
       toValue: 1,
       duration: reduceMotion ? 0 : SHEET_ANIMATION_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-    const frame = requestAnimationFrame(() => input.current?.focus());
+    const frame = requestAnimationFrame(() => {
+      input.current?.focus();
+      if (caret) input.current?.setSelection?.(caret.start, caret.end);
+    });
     return () => cancelAnimationFrame(frame);
   }, [snapshot.isOpen, progress, reduceMotion]);
 
@@ -134,41 +109,9 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
     [close],
   );
 
-  const commit = useCallback((next: string, selection?: Selection) => {
-    textRef.current = next;
+  const onChangeText = useCallback((next: string) => {
     store.commitEditorText(next);
-    if (selection) {
-      selectionRef.current = selection;
-      setOverride(selection);
-    }
   }, []);
-
-  const onChangeText = useCallback(
-    (next: string) => {
-      const smart = store.applyEditorChange(textRef.current, next);
-      if (smart) commit(smart.content, smart.selection);
-      else commit(next);
-    },
-    [commit],
-  );
-
-  const onSelectionChange = useCallback(
-    (event: SelectionEvent) => {
-      selectionRef.current = event.nativeEvent.selection;
-      setOverride((current) => (current !== null && sameSelection(current, event.nativeEvent.selection) ? null : current));
-    },
-    [],
-  );
-
-  const runToolbar = useCallback(
-    (kind: 'task' | 'bullet' | 'heading' | 'stamp') => {
-      const result = store.applyToolbar(kind, selectionRef.current);
-      if (!result) return;
-      commit(result.content, result.selection);
-      requestAnimationFrame(() => input.current?.focus());
-    },
-    [commit],
-  );
 
   const onShare = useCallback(async () => {
     const outcome = await platform.shareText(snapshot.content, 'Punch list');
@@ -199,7 +142,6 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
   const font = hostFont(colors);
   const menuItems: Array<[string, () => void, boolean?]> = [
     [previewing ? 'Edit' : 'Preview', () => setPreviewing((value) => !value)],
-    ['Stamp', () => runToolbar('stamp')],
     ['Share', () => void onShare()],
     ['Clear', () => void store.clear(), true],
   ];
@@ -374,8 +316,6 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
                 multiline
                 value={snapshot.content}
                 onChangeText={onChangeText}
-                selection={override ?? undefined}
-                onSelectionChange={onSelectionChange}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
                 accessibilityLabel="Punch list notes"
@@ -408,10 +348,7 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
             ) : null}
           </ScrollView>
 
-          <View style={[styles.toolbar, { borderTopColor: colors.border, backgroundColor: colors.elevated }]}>
-            {TOOLBAR.map(([kind, label]) => (
-              <MenuButton key={kind} colors={colors} label={label} onPress={() => runToolbar(kind)} />
-            ))}
+          <View style={[styles.footer, { borderTopColor: colors.border, backgroundColor: colors.elevated }]}>
             <Text style={[styles.counts, { color: colors.muted }, font]}>
               {counts.openTasks} open · {counts.doneTasks} done
             </Text>
@@ -512,10 +449,6 @@ function hostFont(colors: ThemeColors) {
   return colors.fontFamily ? { fontFamily: colors.fontFamily } : null;
 }
 
-function sameSelection(a: Selection, b: Selection): boolean {
-  return a.start === b.start && a.end === b.end;
-}
-
 function formatExpiry(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -548,6 +481,6 @@ const styles = StyleSheet.create({
   hidden: { height: 0, opacity: 0, overflow: 'hidden' },
   tapToType: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   tapToTypeText: { fontSize: 13 },
-  toolbar: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1 },
+  footer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1 },
   counts: { marginLeft: 'auto', fontSize: 12 },
 });

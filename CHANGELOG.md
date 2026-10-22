@@ -19,10 +19,10 @@ First implementation of the punch-list FAB + markdown notepad.
   fade, 500 ms long-press hide (never persisted) with an actionable recovery
   affordance.
 - Transparent modal sheet with a 220 ms custom animation, compact/expanded
-  height, reduced-motion handling, single controlled multiline editor, smart
-  markdown list continuation, toolbar insertions (task/bullet/heading/stamp),
-  context stamping, and a bounded markdown preview with span-accurate checkbox
-  toggling.
+  height, reduced-motion handling, a plain multiline editor that owns its caret
+  (placed once after the prefilled screen line), and a bounded markdown preview
+  with span-accurate checkbox toggling. No formatting toolbar and no list
+  auto-continuation: the notes are the text as typed.
 - Persistence: versioned per-appId envelope (document + FAB position +
   `lastSent`), 400 ms debounced serialized writes with revision acknowledgement,
   ordered edit-operation replay over content that hydrates later, corrupt/
@@ -72,7 +72,7 @@ First implementation of the punch-list FAB + markdown notepad.
   `react-native-safe-area-context` are optional peers. Has an inert production
   twin like the root.
 - Dev bundle: the controller is a closure instead of a class (≈ −6 KiB
-  minified); the sheet's menu and toolbar are data-driven.
+  minified); the sheet's menu is data-driven.
 - Packaging: source ships so source maps resolve; maintainer documents no longer
   ship in the tarball; peers narrowed to what CI installs
   (`react >=19.1 <20`, `react-native >=0.81`); `engines.node >=20`;
