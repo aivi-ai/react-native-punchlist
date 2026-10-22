@@ -1,5 +1,5 @@
-import { Alert, AppState, Keyboard, Linking, Platform, Share } from 'react-native';
-import type { KeyboardFrame, PlatformInfo, ShareOutcome } from './types';
+import { Alert, AppState, Linking, Platform, Share } from 'react-native';
+import type { PlatformInfo, ShareOutcome } from './types';
 
 /**
  * Native platform layer. Every platform-sensitive capability the UI/store needs
@@ -32,22 +32,6 @@ export function subscribeLifecycle(onFlush: (reason: string) => void): () => voi
     if (state !== 'active') onFlush('background');
   });
   return () => subscription.remove();
-}
-
-/** Keyboard frame changes, normalized to "top edge in window coordinates". */
-export function subscribeKeyboardFrames(onChange: (frame: KeyboardFrame) => void): () => void {
-  const show = Keyboard.addListener('keyboardDidShow', (event) => {
-    onChange({ screenY: event.endCoordinates.screenY, height: event.endCoordinates.height });
-  });
-  const hide = Keyboard.addListener('keyboardDidHide', () => onChange({ screenY: Number.POSITIVE_INFINITY, height: 0 }));
-  const change = Keyboard.addListener('keyboardWillChangeFrame', (event) => {
-    onChange({ screenY: event.endCoordinates.screenY, height: event.endCoordinates.height });
-  });
-  return () => {
-    show.remove();
-    hide.remove();
-    change.remove();
-  };
 }
 
 export async function shareText(text: string, title: string): Promise<ShareOutcome> {

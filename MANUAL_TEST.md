@@ -39,3 +39,8 @@ Rows 7, 8, 9, 14 and part of 4/6 are covered by unit/integration evidence
 (`tests/ui/punchlist.test.tsx`, `tests/logic/geometry-and-storage.test.ts`) and
 by the RNTL flow — but unit evidence is **not** a substitute for device keyboard
 and navigation-bar testing.
+
+Rows 1 and 14 (and the keyboard half of 3) are the acceptance test for the
+2026-10-22 keyboard rework: the sheet no longer does keyboard arithmetic and
+leans on `KeyboardAvoidingView`, which unit tests cannot exercise. They still
+have to be run on a device.

@@ -12,6 +12,7 @@ import {
   Animated,
   Easing,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -21,10 +22,9 @@ import {
   Text,
   TextInput,
   View,
-  type LayoutChangeEvent,
 } from 'react-native';
 import { MAX_CONTENT_BYTES, SHEET_ANIMATION_MS } from '../constants';
-import { keyboardOverlap, sheetHeight, visualViewportOverlap, type Size } from '../geometry';
+import { sheetHeight, type Size } from '../geometry';
 import { countTasks } from '../markdown';
 import * as platform from '#platform';
 import { store } from '../store';
@@ -66,47 +66,21 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
   const [expanded, setExpanded] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>('none');
-  const [keyboardInset, setKeyboardInset] = useState(0);
   const [focused, setFocused] = useState(false);
   const [hint, setHint] = useState<string | null>(null);
 
-  const layout = useRef({ top: 0, bottom: 0, height: container.height });
   const input = useRef<ComponentRef<typeof TextInput> | null>(null);
   const progress = useRef(new Animated.Value(0)).current;
   const textRef = useRef(snapshot.content);
   const selectionRef = useRef<Selection>(EMPTY_SELECTION);
   const [override, setOverride] = useState<Selection | null>(null);
 
-  const sheet = useMemo(
-    () => sheetHeight(expanded, container, insets, keyboardInset),
-    [expanded, container, insets, keyboardInset],
-  );
+  const sheet = useMemo(() => sheetHeight(expanded, container, insets), [expanded, container, insets]);
 
   // Keep a shadow copy of the document for smart-list diffs.
   useEffect(() => {
     textRef.current = snapshot.content;
   }, [snapshot.content]);
-
-  // Keyboard geometry: measured against the modal container, clamped to its height.
-  useEffect(() => {
-    if (!snapshot.isOpen) return undefined;
-    if (Platform.OS === 'web') {
-      const viewport = typeof window === 'undefined' ? null : window.visualViewport;
-      if (!viewport) return undefined;
-      const report = () => {
-        setKeyboardInset(visualViewportOverlap(layout.current.height, viewport.height, viewport.offsetTop));
-      };
-      viewport.addEventListener('resize', report);
-      viewport.addEventListener('scroll', report);
-      return () => {
-        viewport.removeEventListener('resize', report);
-        viewport.removeEventListener('scroll', report);
-      };
-    }
-    return platform.subscribeKeyboardFrames((frame) => {
-      setKeyboardInset(keyboardOverlap(layout.current.top, layout.current.bottom, frame.screenY, layout.current.height));
-    });
-  }, [snapshot.isOpen]);
 
   // Focus as soon as the modal/input exist — never after the animation.
   useEffect(() => {
@@ -147,14 +121,6 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [snapshot.isOpen, close]);
-
-  const onLayout = (event: LayoutChangeEvent) => {
-    const { y, height } = event.nativeEvent.layout;
-    layout.current = { top: y, bottom: y + height, height };
-    if (container.height !== height) {
-      setKeyboardInset((current) => Math.min(current, height));
-    }
-  };
 
   const swipe = useMemo(
     () =>
@@ -256,7 +222,7 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
       }}
       supportedOrientations={['portrait', 'portrait-upside-down', 'landscape', 'landscape-left', 'landscape-right']}
     >
-      <View style={styles.root} onLayout={onLayout}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.root}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Dismiss punch list"
@@ -266,7 +232,7 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
         <Animated.View
           style={[
             styles.sheet,
-            { backgroundColor: colors.background, height: sheet, paddingBottom: Math.max(insets.bottom, keyboardInset), transform: [{ translateY }] },
+            { backgroundColor: colors.background, height: sheet, paddingBottom: insets.bottom, transform: [{ translateY }] },
           ]}
         >
           <View {...swipe.panHandlers} style={[styles.header, { borderBottomColor: colors.border }]}>
@@ -393,6 +359,7 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
             style={[styles.body, { backgroundColor: colors.editor }]}
             contentContainerStyle={styles.bodyContent}
             keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
             scrollEnabled={previewing}
           >
             <View
@@ -448,7 +415,7 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
             </Text>
           </View>
         </Animated.View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -556,7 +523,7 @@ function formatExpiry(value: string): string {
 const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, overflow: 'hidden' },
+  sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, overflow: 'hidden', maxHeight: '100%' },
   header: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1 },
   headerGrip: { paddingVertical: 8, paddingHorizontal: 4, minHeight: 48, justifyContent: 'center' },
   grip: { width: 28, height: 4, borderRadius: 2 },
