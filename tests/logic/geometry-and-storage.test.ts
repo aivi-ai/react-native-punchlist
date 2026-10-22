@@ -1,10 +1,8 @@
 import {
   clampYRatio,
   computeFabPlacement,
-  keyboardOverlap,
   nearestEdge,
   sheetHeight,
-  visualViewportOverlap,
   yRatioFor,
 } from '../../src/geometry';
 import { createMemoryStorage, parseEnvelope, resolveAdapter, serializeEnvelope, storageKey } from '../../src/storage';
@@ -39,53 +37,33 @@ describe('FAB placement', () => {
   });
 });
 
-describe('keyboard geometry', () => {
-  it('returns zero when the keyboard is hidden', () => {
-    expect(keyboardOverlap(0, 844, Number.POSITIVE_INFINITY, 844)).toBe(0);
-  });
-
-  it('measures overlap in window coordinates', () => {
-    expect(keyboardOverlap(0, 844, 544, 844)).toBe(300);
-  });
-
-  it('handles a keyboard that is already visible at open time', () => {
-    expect(keyboardOverlap(100, 900, 500, 800)).toBe(400);
-  });
-
-  it('never pads a resized window twice', () => {
-    // Container is 400pt tall inside a 900pt window; the keyboard overlaps the
-    // whole container, but the clamp keeps the inset inside the container.
-    expect(keyboardOverlap(200, 600, 100, 400)).toBe(400);
-  });
-
-  it('treats a keyboard starting above the container as fully covering it', () => {
-    expect(keyboardOverlap(300, 600, 200, 300)).toBe(300);
-  });
-
-  it('ignores a keyboard below the container', () => {
-    expect(keyboardOverlap(300, 600, 700, 300)).toBe(0);
-  });
-
-  it('uses visualViewport offsetTop on web', () => {
-    expect(visualViewportOverlap(800, 500, 0)).toBe(300);
-    expect(visualViewportOverlap(800, 500, 100)).toBe(200);
-    expect(visualViewportOverlap(800, undefined, 0)).toBe(0);
-    expect(visualViewportOverlap(800, 900, 0)).toBe(0);
-  });
-});
-
 describe('sheet sizing', () => {
   it('is about half the height when compact and larger when expanded', () => {
-    const compact = sheetHeight(false, container, insets, 0);
-    const expanded = sheetHeight(true, container, insets, 0);
+    const compact = sheetHeight(false, container, insets);
+    const expanded = sheetHeight(true, container, insets);
     expect(compact).toBeLessThan(expanded);
     expect(expanded).toBeLessThanOrEqual(container.height);
   });
 
-  it('stays usable with a large keyboard inset', () => {
-    const height = sheetHeight(false, container, insets, 400);
-    expect(height).toBeGreaterThanOrEqual(160);
-    expect(height).toBeLessThanOrEqual(400);
+  it('fits inside the safe area when expanded', () => {
+    expect(sheetHeight(true, container, insets)).toBe(container.height - insets.top - insets.bottom);
+    expect(sheetHeight(false, container, insets)).toBeCloseTo(container.height * 0.5);
+  });
+
+  it('keeps a positive height on a small device with a large keyboard', () => {
+    // Regression. The sheet used to be sized by (container - keyboard) and then
+    // padded by the keyboard again, so a 336pt keyboard on an iPhone SE-sized
+    // container produced 311 - 336 = -25: an empty content box, and the sheet
+    // vanished as soon as the keyboard came up. Sizing must not involve the
+    // keyboard at all; KeyboardAvoidingView shrinks the sheet from here.
+    const se = { width: 375, height: 667 };
+    const seInsets = { top: 20, right: 0, bottom: 0, left: 0 };
+    expect(sheetHeight(false, se, seInsets)).toBeCloseTo(333.5);
+    expect(sheetHeight(true, se, seInsets)).toBe(se.height - seInsets.top);
+  });
+
+  it('never returns less than a usable minimum', () => {
+    expect(sheetHeight(true, { width: 320, height: 120 }, insets)).toBe(160);
   });
 });
 

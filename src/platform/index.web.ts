@@ -1,4 +1,4 @@
-import type { KeyboardFrame, PlatformInfo, ShareOutcome } from './types';
+import type { PlatformInfo, ShareOutcome } from './types';
 
 /**
  * Web platform layer. Guards every browser global so the module can be imported
@@ -33,25 +33,6 @@ export function subscribeLifecycle(onFlush: (reason: string) => void): () => voi
   return () => {
     if (doc) doc.removeEventListener('visibilitychange', onVisibility);
     if (win) win.removeEventListener('pagehide', onPageHide);
-  };
-}
-
-/** The web keyboard is reported through `visualViewport` when available. */
-export function subscribeKeyboardFrames(onChange: (frame: KeyboardFrame) => void): () => void {
-  const win = getWindow();
-  const viewport = win?.visualViewport ?? null;
-  if (!viewport) return () => undefined;
-  const report = () => {
-    onChange({
-      screenY: viewport.height + viewport.offsetTop,
-      height: Math.max(0, (win?.innerHeight ?? viewport.height) - viewport.height),
-    });
-  };
-  viewport.addEventListener('resize', report);
-  viewport.addEventListener('scroll', report);
-  return () => {
-    viewport.removeEventListener('resize', report);
-    viewport.removeEventListener('scroll', report);
   };
 }
 

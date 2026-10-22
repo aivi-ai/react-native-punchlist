@@ -55,50 +55,15 @@ export function yRatioFor(top: number, containerHeight: number): number {
 }
 
 /**
- * Keyboard overlap with a container in *window* coordinates.
+ * Sheet height for a compact/expanded state, clamped to the safe area.
  *
- * Inputs are normalized before comparing: `keyboardTop` is a window-space Y of
- * the keyboard's top edge, `containerBottom` is the container's window-space
- * bottom. Returns the number of pixels the keyboard covers inside the
- * container, clamped to the container height so a resized window never receives
- * keyboard padding twice.
+ * Deliberately free of keyboard arithmetic: the keyboard is handled by
+ * `KeyboardAvoidingView` in the sheet, which owns the platform behaviour. The
+ * sheet only decides how tall it wants to be, and `maxHeight: '100%'` lets the
+ * platform shrink that when the keyboard claims space.
  */
-export function keyboardOverlap(
-  containerTop: number,
-  containerBottom: number,
-  keyboardTop: number,
-  containerHeight: number,
-): number {
-  if (!Number.isFinite(keyboardTop)) return 0;
-  const height = Math.max(0, containerBottom - containerTop);
-  const overlap = containerBottom - Math.max(containerTop, keyboardTop);
-  if (overlap <= 0) return 0;
-  return clamp(overlap, 0, Math.max(0, Math.min(height, containerHeight)));
-}
-
-/**
- * Web `visualViewport` variant: the browser reports the *visible* height, so
- * overlap is measured from the bottom of the layout viewport.
- */
-export function visualViewportOverlap(
-  layoutHeight: number,
-  visualHeight: number | undefined,
-  visualOffsetTop: number | undefined,
-): number {
-  if (typeof visualHeight !== 'number' || !Number.isFinite(visualHeight)) return 0;
-  const offset = typeof visualOffsetTop === 'number' && Number.isFinite(visualOffsetTop) ? visualOffsetTop : 0;
-  const overlap = layoutHeight - (visualHeight + offset);
-  return overlap > 0 ? overlap : 0;
-}
-
-/** Sheet height for a compact/expanded state, clamped to the safe area. */
-export function sheetHeight(
-  expanded: boolean,
-  container: Size,
-  insets: Insets,
-  keyboardInset: number,
-): number {
-  const usable = container.height - insets.top - Math.max(keyboardInset, insets.bottom);
+export function sheetHeight(expanded: boolean, container: Size, insets: Insets): number {
+  const usable = container.height - insets.top - insets.bottom;
   const half = container.height * 0.5;
   const target = expanded ? usable : Math.min(half, usable);
   return Math.max(160, Math.min(target, container.height));
