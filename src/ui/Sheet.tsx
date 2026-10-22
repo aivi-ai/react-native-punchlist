@@ -1,13 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ComponentProps,
-  type ComponentRef,
-  type ReactElement,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentRef, type ReactElement } from 'react';
 import {
   Animated,
   Easing,
@@ -22,6 +13,8 @@ import {
   Text,
   TextInput,
   View,
+  type LayoutChangeEvent,
+  type LayoutRectangle,
 } from 'react-native';
 import { MAX_CONTENT_BYTES, SHEET_ANIMATION_MS } from '../constants';
 import { sheetHeight, type Size } from '../geometry';
@@ -29,7 +22,6 @@ import { countTasks } from '../markdown';
 import * as platform from '#platform';
 import { store } from '../store';
 import type { Insets, PunchlistErrorLike } from '../types';
-import type { Selection } from '../insertion';
 import { utf8Bytes } from '../util';
 import { usePunchlist } from '../usePunchlist';
 import { Preview } from './Preview';
@@ -42,24 +34,23 @@ export interface SheetProps {
   reduceMotion: boolean;
 }
 
-/** Selection-change event payload, derived from the installed RN types. */
-type SelectionEvent = Parameters<NonNullable<ComponentProps<typeof TextInput>['onSelectionChange']>>[0];
-
 type Overlay = 'none' | 'menu';
 
-const EMPTY_SELECTION: Selection = { start: 0, end: 0 };
-
-const TOOLBAR = [
-  ['task', 'Task'],
-  ['bullet', 'Bullet'],
-  ['heading', 'Heading'],
-  ['stamp', 'Stamp'],
-] as const;
+/** Visual diameter of the round header buttons. */
+const ICON_SIZE = 32;
+/** Their touch target. */
+const ICON_TOUCH = 48;
+const MENU_ANIMATION_MS = 160;
 
 /**
  * Open-state sheet: a transparent RN Modal with a custom 220ms animation, a
- * compact/expanded height, a single controlled multiline editor, a bounded
- * markdown preview, toolbar insertions and the send/share banner.
+ * compact/expanded height, a plain multiline editor, a bounded markdown
+ * preview and the send/share banner.
+ *
+ * The editor owns its caret. The sheet places it once on open (after the
+ * prefilled screen line) and never pushes a selection back afterwards: a
+ * controlled `selection` prop races the native caret and snaps it back on
+ * every keystroke.
  */
 export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): ReactElement | null {
   const snapshot = usePunchlist();
@@ -71,18 +62,15 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
 
   const input = useRef<ComponentRef<typeof TextInput> | null>(null);
   const progress = useRef(new Animated.Value(0)).current;
-  const textRef = useRef(snapshot.content);
-  const selectionRef = useRef<Selection>(EMPTY_SELECTION);
-  const [override, setOverride] = useState<Selection | null>(null);
+  const menuProgress = useRef(new Animated.Value(0)).current;
+  const header = useRef<LayoutRectangle | null>(null);
+  const moreButton = useRef<LayoutRectangle | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState({ top: 56, right: 12 });
 
-  const sheet = useMemo(() => sheetHeight(expanded, container, insets), [expanded, container, insets]);
+  const sheet =useMemo(() => sheetHeight(expanded, container, insets), [expanded, container, insets]);
 
-  // Keep a shadow copy of the document for smart-list diffs.
-  useEffect(() => {
-    textRef.current = snapshot.content;
-  }, [snapshot.content]);
-
-  // Focus as soon as the modal/input exist — never after the animation.
+  // Focus as soon as the modal/input exist — never after the animation — and
+  // place the caret once, after the prefilled screen line.
   useEffect(() => {
     if (!snapshot.isOpen) {
       progress.setValue(0);
@@ -90,20 +78,31 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
       setOverlay('none');
       return undefined;
     }
-    const hintSelection = store.takeOpenSelection();
-    if (hintSelection) {
-      selectionRef.current = hintSelection;
-      setOverride(hintSelection);
-    }
+    const caret = store.takeOpenSelection();
     Animated.timing(progress, {
       toValue: 1,
       duration: reduceMotion ? 0 : SHEET_ANIMATION_MS,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
-    const frame = requestAnimationFrame(() => input.current?.focus());
+    const frame = requestAnimationFrame(() => {
+      input.current?.focus();
+      if (caret) input.current?.setSelection?.(caret.start, caret.end);
+    });
     return () => cancelAnimationFrame(frame);
   }, [snapshot.isOpen, progress, reduceMotion]);
+
+  // The overflow menu grows out of its button.
+  useEffect(() => {
+    if (overlay !== 'menu') return;
+    menuProgress.setValue(0);
+    Animated.timing(menuProgress, {
+      toValue: 1,
+      duration: reduceMotion ? 0 : MENU_ANIMATION_MS,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [overlay, menuProgress, reduceMotion]);
 
   const close = useCallback(() => {
     store.close();
@@ -134,41 +133,9 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
     [close],
   );
 
-  const commit = useCallback((next: string, selection?: Selection) => {
-    textRef.current = next;
+  const onChangeText = useCallback((next: string) => {
     store.commitEditorText(next);
-    if (selection) {
-      selectionRef.current = selection;
-      setOverride(selection);
-    }
   }, []);
-
-  const onChangeText = useCallback(
-    (next: string) => {
-      const smart = store.applyEditorChange(textRef.current, next);
-      if (smart) commit(smart.content, smart.selection);
-      else commit(next);
-    },
-    [commit],
-  );
-
-  const onSelectionChange = useCallback(
-    (event: SelectionEvent) => {
-      selectionRef.current = event.nativeEvent.selection;
-      setOverride((current) => (current !== null && sameSelection(current, event.nativeEvent.selection) ? null : current));
-    },
-    [],
-  );
-
-  const runToolbar = useCallback(
-    (kind: 'task' | 'bullet' | 'heading' | 'stamp') => {
-      const result = store.applyToolbar(kind, selectionRef.current);
-      if (!result) return;
-      commit(result.content, result.selection);
-      requestAnimationFrame(() => input.current?.focus());
-    },
-    [commit],
-  );
 
   const onShare = useCallback(async () => {
     const outcome = await platform.shareText(snapshot.content, 'Punch list');
@@ -199,7 +166,6 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
   const font = hostFont(colors);
   const menuItems: Array<[string, () => void, boolean?]> = [
     [previewing ? 'Edit' : 'Preview', () => setPreviewing((value) => !value)],
-    ['Stamp', () => runToolbar('stamp')],
     ['Share', () => void onShare()],
     ['Clear', () => void store.clear(), true],
   ];
@@ -238,80 +204,85 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
             { backgroundColor: colors.background, height: sheet, paddingBottom: insets.bottom, transform: [{ translateY }] },
           ]}
         >
-          <View {...swipe.panHandlers} style={[styles.header, { borderBottomColor: colors.border }]}>
+          <View
+            {...swipe.panHandlers}
+            onLayout={(event) => {
+              header.current = event.nativeEvent.layout;
+            }}
+            style={[styles.header, { borderBottomColor: colors.border }]}
+          >
+            {/* Grabber: tap toggles the height, drag down closes. The header button is the accessible control. */}
             <Pressable
               onPress={() => setExpanded((value) => !value)}
-              accessibilityRole="button"
-              accessibilityLabel={expanded ? 'Collapse sheet' : 'Expand sheet'}
-              style={styles.headerGrip}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={styles.grabberHit}
             >
-              <View style={[styles.grip, { backgroundColor: colors.border }]} />
+              <View style={[styles.grabber, { backgroundColor: colors.border }]} />
             </Pressable>
-            <View style={styles.headerText}>
-              <Text style={[styles.title, { color: colors.text }, font]} numberOfLines={1}>
-                {snapshot.captureLabel ? `Punch list · ${snapshot.captureLabel}` : 'Punch list'}
-              </Text>
-              <Text style={[styles.status, { color: colors.muted }, font]} numberOfLines={1}>
-                {statusLine(snapshot)}
-              </Text>
-            </View>
-            {snapshot.canSend ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Send punch list"
-                accessibilityState={{ disabled: sendDisabled, busy: snapshot.sendState === 'sending' }}
-                disabled={sendDisabled}
-                onPress={() => {
-                  void attempt(() => store.send(), 'Send failed.');
-                }}
-                style={[
-                  styles.primaryButton,
-                  { backgroundColor: sendDisabled ? colors.elevated : colors.accent, borderColor: colors.border },
-                ]}
-              >
-                <Text style={[styles.primaryLabel, { color: sendDisabled ? colors.muted : colors.accentText }, font]}>
-                  {snapshot.sendState === 'sending' ? 'Sending…' : 'Send'}
+            <View style={styles.headerRow}>
+              <View style={styles.headerText}>
+                <Text style={[styles.title, { color: colors.text }, font]} numberOfLines={1}>
+                  {snapshot.captureLabel ? `Punch list · ${snapshot.captureLabel}` : 'Punch list'}
                 </Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={expanded ? 'Collapse sheet' : 'Expand sheet'}
-              onPress={() => setExpanded((value) => !value)}
-              style={styles.iconButton}
-            >
-              <Text style={[styles.iconLabel, { color: colors.text }]}>{expanded ? '▾' : '▴'}</Text>
-            </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="More actions"
-              accessibilityState={{ expanded: overlay === 'menu' }}
-              onPress={() => setOverlay((value) => (value === 'menu' ? 'none' : 'menu'))}
-              style={styles.iconButton}
-            >
-              <Text style={[styles.iconLabel, { color: colors.text }]}>⋯</Text>
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close punch list" onPress={close} style={styles.iconButton}>
-              <Text style={[styles.iconLabel, { color: colors.text }]}>✕</Text>
-            </Pressable>
-          </View>
-
-          {overlay === 'menu' ? (
-            <View style={[styles.menu, { borderBottomColor: colors.border, backgroundColor: colors.elevated }]}>
-              {menuItems.map(([label, run, destructive]) => (
-                <MenuButton
-                  key={label}
-                  colors={colors}
-                  label={label}
-                  destructive={destructive}
+                <Text style={[styles.status, { color: colors.muted }, font]} numberOfLines={1}>
+                  {statusLine(snapshot)}
+                </Text>
+              </View>
+              {snapshot.canSend ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Send punch list"
+                  accessibilityState={{ disabled: sendDisabled, busy: snapshot.sendState === 'sending' }}
+                  disabled={sendDisabled}
+                  hitSlop={8}
                   onPress={() => {
-                    setOverlay('none');
-                    run();
+                    void attempt(() => store.send(), 'Send failed.');
                   }}
-                />
-              ))}
+                  style={({ pressed }) => [
+                    styles.sendButton,
+                    { backgroundColor: sendDisabled ? colors.elevated : colors.accent, opacity: pressed ? 0.75 : 1 },
+                  ]}
+                >
+                  <Text style={[styles.sendLabel, { color: sendDisabled ? colors.muted : colors.accentText }, font]}>
+                    {snapshot.sendState === 'sending' ? 'Sending…' : 'Send'}
+                  </Text>
+                </Pressable>
+              ) : null}
+              <IconButton
+                colors={colors}
+                label={expanded ? 'Collapse sheet' : 'Expand sheet'}
+                onPress={() => setExpanded((value) => !value)}
+              >
+                <Chevron color={colors.text} direction={expanded ? 'down' : 'up'} />
+              </IconButton>
+              <IconButton
+                colors={colors}
+                label="More actions"
+                expanded={overlay === 'menu'}
+                onLayout={(event) => {
+                  moreButton.current = event.nativeEvent.layout;
+                }}
+                onPress={() => {
+                  // Hang the menu under the button, right edges aligned with its circle.
+                  const bar = header.current;
+                  const button = moreButton.current;
+                  if (bar && button) {
+                    setMenuAnchor({
+                      top: bar.height - 4,
+                      right: bar.width - (button.x + button.width) + (ICON_TOUCH - ICON_SIZE) / 2,
+                    });
+                  }
+                  setOverlay((value) => (value === 'menu' ? 'none' : 'menu'));
+                }}
+              >
+                <Ellipsis color={colors.text} />
+              </IconButton>
+              <IconButton colors={colors} label="Close punch list" onPress={close}>
+                <Cross color={colors.text} />
+              </IconButton>
             </View>
-          ) : null}
+          </View>
 
           {hint ? (
             <Text style={[styles.hint, { color: colors.muted }, font]} accessibilityLiveRegion="polite">
@@ -322,7 +293,7 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
           {snapshot.canUndo ? (
             <View style={[styles.bannerRow, { borderBottomColor: colors.border }]}>
               <Text style={[styles.bannerText, { color: colors.text }, font]}>Notes cleared.</Text>
-              <MenuButton
+              <PillButton
                 colors={colors}
                 label="Undo"
                 onPress={() => {
@@ -340,7 +311,7 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
                 {snapshot.persistenceDetail}
               </Text>
               {snapshot.hasStoredRecovery ? (
-                <MenuButton
+                <PillButton
                   colors={colors}
                   label="Reset stored data"
                   destructive
@@ -374,8 +345,6 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
                 multiline
                 value={snapshot.content}
                 onChangeText={onChangeText}
-                selection={override ?? undefined}
-                onSelectionChange={onSelectionChange}
                 onFocus={() => setFocused(true)}
                 onBlur={() => setFocused(false)}
                 accessibilityLabel="Punch list notes"
@@ -408,14 +377,55 @@ export function Sheet({ colors, insets, container, reduceMotion }: SheetProps): 
             ) : null}
           </ScrollView>
 
-          <View style={[styles.toolbar, { borderTopColor: colors.border, backgroundColor: colors.elevated }]}>
-            {TOOLBAR.map(([kind, label]) => (
-              <MenuButton key={kind} colors={colors} label={label} onPress={() => runToolbar(kind)} />
-            ))}
+          <View style={[styles.footer, { borderTopColor: colors.border, backgroundColor: colors.elevated }]}>
             <Text style={[styles.counts, { color: colors.muted }, font]}>
               {counts.openTasks} open · {counts.doneTasks} done
             </Text>
           </View>
+
+          {overlay === 'menu' ? (
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss menu"
+                onPress={() => setOverlay('none')}
+                style={StyleSheet.absoluteFill}
+              />
+              <Animated.View
+                accessibilityRole="menu"
+                style={[
+                  styles.menu,
+                  {
+                    top: menuAnchor.top,
+                    right: menuAnchor.right,
+                    backgroundColor: colors.background,
+                    borderColor: colors.border,
+                    opacity: menuProgress,
+                    transform: [{ scale: menuProgress.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }],
+                  },
+                ]}
+              >
+                {menuItems.map(([label, run, destructive], index) => (
+                  <Pressable
+                    key={label}
+                    accessibilityRole="menuitem"
+                    accessibilityLabel={label}
+                    onPress={() => {
+                      setOverlay('none');
+                      run();
+                    }}
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      index > 0 ? { borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth } : null,
+                      pressed ? { backgroundColor: colors.elevated } : null,
+                    ]}
+                  >
+                    <Text style={[styles.menuLabel, { color: destructive ? colors.danger : colors.text }, font]}>{label}</Text>
+                  </Pressable>
+                ))}
+              </Animated.View>
+            </>
+          ) : null}
         </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
@@ -442,7 +452,7 @@ function ResultBanner({
           {snapshot.lastSent.expiresAt ? ` · expires ${formatExpiry(snapshot.lastSent.expiresAt)}` : ''}
         </Text>
         {snapshot.lastSent.url ? (
-          <MenuButton
+          <PillButton
             colors={colors}
             label="Open"
             onPress={() => {
@@ -450,8 +460,8 @@ function ResultBanner({
             }}
           />
         ) : null}
-        <MenuButton colors={colors} label="Copy" onPress={() => void onCopy()} />
-        <MenuButton colors={colors} label="Share" onPress={() => void onShare()} />
+        <PillButton colors={colors} label="Copy" onPress={() => void onCopy()} />
+        <PillButton colors={colors} label="Share" onPress={() => void onShare()} />
       </View>
     );
   }
@@ -461,8 +471,8 @@ function ResultBanner({
         <Text style={[styles.bannerText, { color: colors.danger }, hostFont(colors)]} numberOfLines={3}>
           {snapshot.sendError ?? 'Send failed.'}
         </Text>
-        <MenuButton colors={colors} label="Retry" onPress={() => void onRetry()} />
-        <MenuButton colors={colors} label="Copy" onPress={() => void onCopy()} />
+        <PillButton colors={colors} label="Retry" onPress={() => void onRetry()} />
+        <PillButton colors={colors} label="Copy" onPress={() => void onCopy()} />
       </View>
     );
   }
@@ -474,7 +484,8 @@ function ResultBanner({
   return null;
 }
 
-function MenuButton({
+/** Inline action in a banner: a soft tinted pill, hit area grown to 48pt. */
+function PillButton({
   colors,
   label,
   onPress,
@@ -489,11 +500,81 @@ function MenuButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      hitSlop={8}
       onPress={onPress}
-      style={({ pressed }) => [styles.menuButton, { borderColor: colors.border, opacity: pressed ? 0.6 : 1 }]}
+      style={({ pressed }) => [styles.pill, { backgroundColor: colors.elevated, opacity: pressed ? 0.6 : 1 }]}
     >
-      <Text style={[styles.menuLabel, { color: destructive ? colors.danger : colors.text }, hostFont(colors)]}>{label}</Text>
+      <Text style={[styles.pillLabel, { color: destructive ? colors.danger : colors.accent }, hostFont(colors)]}>{label}</Text>
     </Pressable>
+  );
+}
+
+/** Round header button: a 32pt filled circle inside a 48pt touch target. */
+function IconButton({
+  colors,
+  label,
+  expanded,
+  onPress,
+  onLayout,
+  children,
+}: {
+  colors: ThemeColors;
+  label: string;
+  expanded?: boolean;
+  onPress: () => void;
+  onLayout?: (event: LayoutChangeEvent) => void;
+  children: ReactElement;
+}): ReactElement {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={expanded === undefined ? undefined : { expanded }}
+      onPress={onPress}
+      onLayout={onLayout}
+      style={styles.iconTouch}
+    >
+      {({ pressed }) => (
+        <View style={[styles.iconCircle, { backgroundColor: colors.elevated, opacity: pressed ? 0.6 : 1 }]}>{children}</View>
+      )}
+    </Pressable>
+  );
+}
+
+/*
+ * Icons are drawn with plain views, not text glyphs (▴ ⋯ ✕), whose size,
+ * weight and baseline change with the host font.
+ */
+
+/** The bottom-right corner of a small square, rotated. */
+function Chevron({ color, direction }: { color: string; direction: 'up' | 'down' }): ReactElement {
+  const up = direction === 'up';
+  return (
+    <View
+      style={[
+        styles.chevron,
+        { borderColor: color, transform: [{ translateY: up ? 2 : -2 }, { rotate: up ? '-135deg' : '45deg' }] },
+      ]}
+    />
+  );
+}
+
+function Ellipsis({ color }: { color: string }): ReactElement {
+  return (
+    <View style={styles.ellipsis}>
+      {[0, 1, 2].map((dot) => (
+        <View key={dot} style={[styles.dot, { backgroundColor: color }]} />
+      ))}
+    </View>
+  );
+}
+
+function Cross({ color }: { color: string }): ReactElement {
+  return (
+    <View style={styles.cross}>
+      <View style={[styles.crossBar, { backgroundColor: color, transform: [{ rotate: '45deg' }] }]} />
+      <View style={[styles.crossBar, { backgroundColor: color, transform: [{ rotate: '-45deg' }] }]} />
+    </View>
   );
 }
 
@@ -512,10 +593,6 @@ function hostFont(colors: ThemeColors) {
   return colors.fontFamily ? { fontFamily: colors.fontFamily } : null;
 }
 
-function sameSelection(a: Selection, b: Selection): boolean {
-  return a.start === b.start && a.end === b.end;
-}
-
 function formatExpiry(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -526,20 +603,40 @@ const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end' },
   backdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   sheet: { borderTopLeftRadius: 16, borderTopRightRadius: 16, overflow: 'hidden', flexShrink: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1 },
-  headerGrip: { paddingVertical: 8, paddingHorizontal: 4, minHeight: 48, justifyContent: 'center' },
-  grip: { width: 28, height: 4, borderRadius: 2 },
-  headerText: { flex: 1, minWidth: 40, flexShrink: 1 },
-  title: { fontSize: 15, fontWeight: '600' },
-  status: { fontSize: 12 },
-  primaryButton: { minHeight: 48, paddingHorizontal: 14, borderRadius: 10, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  primaryLabel: { fontSize: 15, fontWeight: '600' },
-  iconButton: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
-  iconLabel: { fontSize: 17 },
-  menu: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1 },
-  menuButton: { minHeight: 48, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-  menuLabel: { fontSize: 14, fontWeight: '500' },
-  bannerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: 1 },
+  header: { paddingBottom: 6, borderBottomWidth: StyleSheet.hairlineWidth },
+  grabberHit: { alignItems: 'center', paddingTop: 6, paddingBottom: 2 },
+  grabber: { width: 36, height: 5, borderRadius: 2.5 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 16, paddingRight: 4 },
+  headerText: { flex: 1, minWidth: 40, flexShrink: 1, marginRight: 4 },
+  title: { fontSize: 17, fontWeight: '600' },
+  status: { fontSize: 12, marginTop: 1 },
+  sendButton: { height: 32, paddingHorizontal: 14, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginHorizontal: 4 },
+  sendLabel: { fontSize: 15, fontWeight: '600' },
+  iconTouch: { width: ICON_TOUCH, height: ICON_TOUCH, alignItems: 'center', justifyContent: 'center' },
+  iconCircle: { width: ICON_SIZE, height: ICON_SIZE, borderRadius: ICON_SIZE / 2, alignItems: 'center', justifyContent: 'center' },
+  chevron: { width: 9, height: 9, borderRightWidth: 2, borderBottomWidth: 2, borderRadius: 1 },
+  ellipsis: { flexDirection: 'row', gap: 3 },
+  dot: { width: 4, height: 4, borderRadius: 2 },
+  cross: { width: 12, height: 12, alignItems: 'center', justifyContent: 'center' },
+  crossBar: { position: 'absolute', width: 14, height: 2, borderRadius: 1 },
+  menu: {
+    position: 'absolute',
+    minWidth: 200,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    overflow: 'hidden',
+    transformOrigin: 'top right',
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  menuItem: { minHeight: 48, paddingHorizontal: 16, justifyContent: 'center' },
+  menuLabel: { fontSize: 16 },
+  pill: { minHeight: 32, paddingHorizontal: 14, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  pillLabel: { fontSize: 14, fontWeight: '600' },
+  bannerRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
   bannerText: { flexShrink: 1, minWidth: 120, fontSize: 13 },
   hint: { paddingHorizontal: 12, paddingVertical: 6, fontSize: 13 },
   body: { flex: 1 },
@@ -548,6 +645,6 @@ const styles = StyleSheet.create({
   hidden: { height: 0, opacity: 0, overflow: 'hidden' },
   tapToType: { minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   tapToTypeText: { fontSize: 13 },
-  toolbar: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: 1 },
+  footer: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth },
   counts: { marginLeft: 'auto', fontSize: 12 },
 });

@@ -81,6 +81,45 @@ describe('<Punchlist />', () => {
     await waitFor(() => expect(editorValue()).toContain('fix the copy'));
   });
 
+  it('leaves the caret to the native editor and keeps typed text verbatim', async () => {
+    await render(<Punchlist enabled appId="plain-editor" getContext={() => ({ screen: 'Checkout' })} />);
+    layout();
+    fireEvent.press(await screen.findByLabelText(/^Open punch list/));
+
+    const editor = await screen.findByLabelText('Punch list notes');
+    // A controlled selection snaps the caret back on every keystroke.
+    expect(editor.props.selection).toBeUndefined();
+    expect(screen.queryByLabelText('Task')).toBeNull();
+    expect(screen.queryByLabelText('Bullet')).toBeNull();
+
+    // Enter after a task line is a plain newline: no list continuation.
+    fireEvent.changeText(editor, '- [ ] Checkout: fix the copy\n');
+    await waitFor(() => expect(editorValue()).toBe('- [ ] Checkout: fix the copy\n'));
+  });
+
+  it('opens the overflow menu from its button and dismisses it on an outside tap', async () => {
+    await render(<Punchlist enabled appId="overflow-menu" getContext={() => ({ screen: 'Checkout' })} />);
+    layout();
+    fireEvent.press(await screen.findByLabelText(/^Open punch list/));
+    await screen.findByLabelText('Punch list notes');
+
+    expect(screen.queryByRole('menuitem', { name: 'Share' })).toBeNull();
+    fireEvent.press(screen.getByLabelText('More actions'));
+    await waitFor(() =>
+      expect(screen.getByLabelText('More actions').props.accessibilityState).toMatchObject({ expanded: true }),
+    );
+    expect(screen.getAllByRole('menuitem').map((item) => item.props.accessibilityLabel)).toEqual(['Preview', 'Share', 'Clear']);
+
+    fireEvent.press(screen.getByLabelText('Dismiss menu'));
+    await waitFor(() => expect(screen.queryByRole('menuitem', { name: 'Share' })).toBeNull());
+
+    fireEvent.press(screen.getByLabelText('More actions'));
+    fireEvent.press(await screen.findByRole('menuitem', { name: 'Preview' }));
+    await waitFor(() => expect(screen.queryByRole('menuitem')).toBeNull());
+    fireEvent.press(screen.getByLabelText('More actions'));
+    expect(await screen.findByRole('menuitem', { name: 'Edit' })).toBeTruthy();
+  });
+
   it('survives StrictMode double-mounting with a single owner', async () => {
     const storage = memoryStorage();
     await render(

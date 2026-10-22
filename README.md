@@ -31,8 +31,8 @@ export default function App() {
 }
 ```
 
-This works with `__DEV__` alone: captured screen names, markdown editing,
-toolbar insertions, preview and a draggable FAB. Notes are **not saved across
+This works with `__DEV__` alone: captured screen names, plain markdown notes,
+preview and a draggable FAB. Notes are **not saved across
 launches** and the app shows that plainly (“Not saved across launches — provide
 storage.”), because no storage adapter was supplied.
 
